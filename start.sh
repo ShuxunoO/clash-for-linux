@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 严格模式
-set -eo pipefail
+set -euo pipefail
 
 # --- DEBUG: 打印具体失败的行号和命令（systemd 下非常关键） ---
 trap 'rc=$?; echo "[ERR] rc=$rc line=$LINENO cmd=$BASH_COMMAND" >&2' ERR
@@ -90,14 +90,37 @@ URL="${CLASH_URL:-}"
 URL="$(printf '%s' "$URL" | tr -d '\r')"
 URL="$(printf '%s' "$URL" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
+# 允许手动启动时交互填写；直接回车则切到本地兜底配置
+MANUAL_EMPTY_URL_FALLBACK=false
+if [ -z "$URL" ] && [ "${SYSTEMD_MODE:-false}" != "true" ]; then
+  if [ -t 0 ]; then
+    echo
+    echo "[WARN] 未检测到订阅地址（CLASH_URL 为空）"
+    echo "请粘贴你的 Clash 订阅地址（直接回车将使用本地兜底配置启动）："
+    read -r -p "Clash URL: " input_url
+    input_url="$(printf '%s' "$input_url" | tr -d '\r')"
+    input_url="$(printf '%s' "$input_url" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+
+    if [ -n "$input_url" ]; then
+      if ! printf '%s' "$input_url" | grep -Eq '^https?://'; then
+        echo "[ERR] CLASH_URL 格式无效：必须以 http:// 或 https:// 开头" >&2
+        exit 2
+      fi
+      URL="$input_url"
+      export CLASH_URL="$URL"
+    else
+      echo "[WARN] 未填写订阅地址，切换为本地兜底配置启动"
+      MANUAL_EMPTY_URL_FALLBACK=true
+    fi
+  else
+    echo "[ERR] CLASH_URL 为空（未配置订阅地址）" >&2
+    exit 2
+  fi
+fi
+
 #让 bash 子进程能拿到
 export CLASH_URL="$URL"
 
-# 只有在“需要在线更新订阅”的模式下才强制要求 URL
-if [ -z "$URL" ] && [ "${SYSTEMD_MODE:-false}" != "true" ]; then
-  echo "[ERR] CLASH_URL 为空（未配置订阅地址）"
-  exit 2
-fi
 if [ -n "$URL" ] && ! printf '%s' "$URL" | grep -Eq '^https?://'; then
   echo "[ERR] CLASH_URL 格式无效：必须以 http:// 或 https:// 开头" >&2
   exit 2
@@ -179,7 +202,7 @@ ensure_ui_links() {
 
 force_write_controller_and_ui() {
   local file="$1"
-  local controller="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
+  local controller="${EXTERNAL_CONTROLLER:-0.0.0.0:9090}"
 
   [ -n "$file" ] || return 1
 
@@ -249,11 +272,11 @@ fix_external_ui_by_safe_paths() {
 CLASH_HTTP_PORT="${CLASH_HTTP_PORT:-7890}"
 CLASH_SOCKS_PORT="${CLASH_SOCKS_PORT:-7891}"
 CLASH_REDIR_PORT="${CLASH_REDIR_PORT:-7892}"
-CLASH_LISTEN_IP="${CLASH_LISTEN_IP:-127.0.0.1}"
+CLASH_LISTEN_IP="${CLASH_LISTEN_IP:-0.0.0.0}"
 CLASH_ALLOW_LAN="${CLASH_ALLOW_LAN:-false}"
 
 EXTERNAL_CONTROLLER_ENABLED="${EXTERNAL_CONTROLLER_ENABLED:-true}"
-EXTERNAL_CONTROLLER="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
+EXTERNAL_CONTROLLER="${EXTERNAL_CONTROLLER:-0.0.0.0:9090}"
 
 ALLOW_INSECURE_TLS="${ALLOW_INSECURE_TLS:-false}"
 
@@ -410,9 +433,13 @@ ensure_fallback_config() {
 }
 SKIP_CONFIG_REBUILD=false
 
-# systemd 模式下若 URL 为空：直接兜底启动
-if [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; then
-  echo -e "\033[33m[WARN]\033[0m SYSTEMD_MODE=true 且 CLASH_URL 为空，跳过订阅更新，使用本地兜底配置启动"
+# systemd 模式下 URL 为空，或手动模式下用户回车跳过：直接兜底启动
+if { [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; } || [ "${MANUAL_EMPTY_URL_FALLBACK:-false}" = "true" ]; then
+  if [ "${SYSTEMD_MODE}" = "true" ]; then
+    echo -e "\033[33m[WARN]\033[0m SYSTEMD_MODE=true 且 CLASH_URL 为空，跳过订阅更新，使用本地兜底配置启动"
+  else
+    echo -e "\033[33m[WARN]\033[0m 手动模式未填写订阅地址，跳过订阅更新，使用本地兜底配置启动"
+  fi
   ensure_fallback_config || true
   SKIP_CONFIG_REBUILD=true
 fi
