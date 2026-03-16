@@ -225,7 +225,7 @@ prompt_clash_url_if_empty
 CLASH_HTTP_PORT=${CLASH_HTTP_PORT:-7890}
 CLASH_SOCKS_PORT=${CLASH_SOCKS_PORT:-7891}
 CLASH_REDIR_PORT=${CLASH_REDIR_PORT:-7892}
-EXTERNAL_CONTROLLER=${EXTERNAL_CONTROLLER:-127.0.0.1:9090}
+EXTERNAL_CONTROLLER=${EXTERNAL_CONTROLLER:-0.0.0.0:9090}
 
 parse_port() {
   local raw="$1"
@@ -360,10 +360,10 @@ if command -v systemctl >/dev/null 2>&1; then
   CLASH_SERVICE_USER="$Service_User" CLASH_SERVICE_GROUP="$Service_Group" "$Install_Dir/scripts/install_systemd.sh"
 
   if [ "${CLASH_ENABLE_SERVICE:-true}" = "true" ]; then
-    systemctl enable "${Service_Name}.service" >/dev/null 2>&1 || true
+    systemctl start "${Service_Name}.service" || true
   fi
   if [ "${CLASH_START_SERVICE:-true}" = "true" ]; then
-    systemctl start "${Service_Name}.service" >/dev/null 2>&1 || true
+    systemctl start "${Service_Name}.service" || true
   fi
 
   if systemctl is-enabled --quiet "${Service_Name}.service" 2>/dev/null; then
@@ -487,12 +487,10 @@ for f in \
   "$TEMP_DIR/config.yaml" \
   "$CONF_DIR/config.yaml"
 do
-  if wait_secret_ready "$f" 12; then
-    SECRET_VAL="$(read_secret_from_config "$f" || true)"
-    if [[ -n "$SECRET_VAL" ]]; then
-      SECRET_FILE="$f"
-      break
-    fi
+  SECRET_VAL="$(read_secret_from_config "$f" 2>/dev/null || true)"
+  if [[ -n "$SECRET_VAL" ]]; then
+    SECRET_FILE="$f"
+    break
   fi
 done
 
