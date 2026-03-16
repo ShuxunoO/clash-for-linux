@@ -142,10 +142,10 @@ fi
 # 兜底生成随机 secret
 if [ -z "$Secret" ]; then
   if command -v openssl >/dev/null 2>&1; then
-    Secret="$(openssl rand -hex 32)"
+    Secret="$(openssl rand -hex 16)"
   else
     # 32 bytes -> 64 hex chars
-    Secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    Secret="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   fi
 fi
 
