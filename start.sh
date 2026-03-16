@@ -824,12 +824,30 @@ Clash_Bin="$(resolve_clash_bin "$Server_Dir" "$CpuArch")"
 ReturnStatus=$?
 
 if [ "$ReturnStatus" -eq 0 ]; then
+  echo ''
+  if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
+    echo -e "Clash Dashboard 访问地址: http://${EXTERNAL_CONTROLLER}/ui"
+
+    SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
+    SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
+
+    if [ "$SHOW_SECRET" = "true" ]; then
+      echo -e "Secret: ${Secret}"
+    elif [ "$SHOW_SECRET_MASKED" = "true" ]; then
+      masked="${Secret:0:4}****${Secret: -4}"
+      echo -e "Secret: ${masked}  (set CLASH_SHOW_SECRET=true to show full)"
+    else
+      echo -e "Secret: 已生成（未显示）。查看：${CONFIG_FILE} 或 .env"
+    fi
+  else
+    echo -e "External Controller (Dashboard) 已禁用"
+  fi
+  echo ''
+
   if [ "${SYSTEMD_MODE:-false}" = "true" ]; then
     echo "[INFO] SYSTEMD_MODE=true，前台启动交给 systemd 监管"
     echo "[INFO] Using config: $CONFIG_FILE"
     echo "[INFO] Using runtime dir: $RUNTIME_DIR"
-
-    # systemd 前台：只用 -f 指定配置文件，-d 作为工作目录
     exec "$Clash_Bin" -f "$CONFIG_FILE" -d "$RUNTIME_DIR"
   else
     echo "[INFO] 后台启动 (nohup)"
@@ -851,29 +869,6 @@ if [ "${SYSTEMD_MODE:-false}" = "true" ]; then
 else
   if_success "$Text5" "$Text6" "$ReturnStatus"
 fi
-
-#################### 输出信息 ####################
-
-echo ''
-if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
-  echo -e "Clash Dashboard 访问地址: http://${EXTERNAL_CONTROLLER}/ui"
-
-  SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
-  SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
-
-  if [ "$SHOW_SECRET" = "true" ]; then
-    echo -e "Secret: ${Secret}"
-  elif [ "$SHOW_SECRET_MASKED" = "true" ]; then
-    # 脱敏：前4后4
-    masked="${Secret:0:4}****${Secret: -4}"
-    echo -e "Secret: ${masked}  (set CLASH_SHOW_SECRET=true to show full)"
-  else
-    echo -e "Secret: 已生成（未显示）。查看：/opt/clash-for-linux/conf/config.yaml 或 .env"
-  fi
-else
-  echo -e "External Controller (Dashboard) 已禁用"
-fi
-echo ''
 
 #################### 写入代理环境变量文件 ####################
 
