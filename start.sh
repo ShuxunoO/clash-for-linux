@@ -448,8 +448,10 @@ if { [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; } || [ "${MANUAL_EMPTY
   SKIP_CONFIG_REBUILD=true
 fi
 
+CLASH_AUTO_UPDATE="${CLASH_AUTO_UPDATE:-true}"
+
 #################### Clash 订阅地址检测及配置文件下载 ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   echo -e '\n正在检测订阅地址...'
   Text1="Clash订阅地址可访问！"
   Text2="Clash订阅地址不可访问！"
@@ -494,7 +496,7 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
 fi
 
 #################### 下载订阅并生成 config.yaml（非兜底路径） ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   ensure_subconverter || true
   echo -e '\n正在下载Clash配置文件...'
   Text3="配置文件clash.yaml下载成功！"
@@ -648,11 +650,30 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
   fi
 fi
 
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" != "true" ]; then
+  echo -e "\033[33m[WARN]\033[0m 已关闭自动更新订阅，优先使用本地已有配置启动"
+
+  # 1) 优先使用已有 conf/config.yaml；没有才 fallback
+  if [ ! -s "$Conf_Dir/config.yaml" ]; then
+    ensure_fallback_config || true
+  fi
+
+  # 2) 补齐运行必须字段
+  force_write_controller_and_ui "$Conf_Dir/config.yaml" || true
+  force_write_secret "$Conf_Dir/config.yaml" || true
+
+  # 3) 明确指定运行配置
+  CONFIG_FILE="$Conf_Dir/config.yaml"
+
+  # 4) 跳过后续“下载 / 转换 / 拼接”流程
+  SKIP_CONFIG_REBUILD=true
+fi
+
 # =========================================================
 # 判断订阅是否已是完整 Clash YAML（Meta / Mihomo / Premium）
 # 若是完整配置，则直接使用，跳过后续代理拆解与拼接
 # =========================================================
-if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.yaml"; then
+if [ -s "$Temp_Dir/clash.yaml" ] && grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.yaml"; then
   echo "[INFO] subscription is a full Clash config, use it directly"
   cp -f "$Temp_Dir/clash.yaml" "$Conf_Dir/config.yaml"
 
@@ -673,8 +694,8 @@ if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.ya
     ln -sfn "$Dashboard_Src" "$Conf_Dir/ui" 2>/dev/null || true
   fi
 
-    SKIP_CONFIG_REBUILD=true
-  fi
+  SKIP_CONFIG_REBUILD=true
+fi
 
 #################### 订阅转换/拼接（非兜底路径） ####################
 if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
@@ -830,7 +851,10 @@ ReturnStatus=$?
 if [ "$ReturnStatus" -eq 0 ]; then
   echo ''
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
-    echo -e "Clash Dashboard 访问地址: http://${EXTERNAL_CONTROLLER}/ui"
+    SERVER_IP="$(hostname -I | awk '{print $1}')"
+    API_PORT="${EXTERNAL_CONTROLLER##*:}"
+
+    echo -e "Clash Dashboard 访问地址: http://${SERVER_IP}:${API_PORT}/ui"
 
     SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
     SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
