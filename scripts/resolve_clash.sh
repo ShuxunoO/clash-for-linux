@@ -36,7 +36,8 @@ download_clash_bin() {
 		return 1
 	fi
 
-	download_url="${CLASH_DOWNLOAD_URL_TEMPLATE:-https://github.com/Dreamacro/clash/releases/latest/download/clash-{arch}.gz}"
+	local _default_url="https://github.com/Dreamacro/clash/releases/latest/download/clash-{arch}.gz"
+	download_url="${CLASH_DOWNLOAD_URL_TEMPLATE:-$_default_url}"
 	if [ -z "$download_url" ]; then
 		echo -e "\033[33m[WARN] 未设置 CLASH_DOWNLOAD_URL_TEMPLATE，跳过 Clash 内核自动下载\033[0m"
 		return 1

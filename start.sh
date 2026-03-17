@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 严格模式
-set -eo pipefail
+set -euo pipefail
 
 # --- DEBUG: 打印具体失败的行号和命令（systemd 下非常关键） ---
 trap 'rc=$?; echo "[ERR] rc=$rc line=$LINENO cmd=$BASH_COMMAND" >&2' ERR
@@ -88,13 +88,41 @@ URL="${CLASH_URL:-}"
 
 # 清理可能的 CRLF（Windows 写 .env 很常见）
 URL="$(printf '%s' "$URL" | tr -d '\r')"
+URL="$(printf '%s' "$URL" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+
+# 允许手动启动时交互填写；直接回车则切到本地兜底配置
+MANUAL_EMPTY_URL_FALLBACK=false
+if [ -z "$URL" ] && [ "${SYSTEMD_MODE:-false}" != "true" ]; then
+  if [ -t 0 ]; then
+    echo
+    echo "[WARN] 未检测到订阅地址（CLASH_URL 为空）"
+    echo "请粘贴你的 Clash 订阅地址（直接回车将使用本地兜底配置启动）："
+    read -r -p "Clash URL: " input_url
+    input_url="$(printf '%s' "$input_url" | tr -d '\r')"
+    input_url="$(printf '%s' "$input_url" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+
+    if [ -n "$input_url" ]; then
+      if ! printf '%s' "$input_url" | grep -Eq '^https?://'; then
+        echo "[ERR] CLASH_URL 格式无效：必须以 http:// 或 https:// 开头" >&2
+        exit 2
+      fi
+      URL="$input_url"
+      export CLASH_URL="$URL"
+    else
+      echo "[WARN] 未填写订阅地址，切换为本地兜底配置启动"
+      MANUAL_EMPTY_URL_FALLBACK=true
+    fi
+  else
+    echo "[ERR] CLASH_URL 为空（未配置订阅地址）" >&2
+    exit 2
+  fi
+fi
 
 #让 bash 子进程能拿到
 export CLASH_URL="$URL"
 
-# 只有在“需要在线更新订阅”的模式下才强制要求 URL
-if [ -z "$URL" ] && [ "${SYSTEMD_MODE:-false}" != "true" ]; then
-  echo "[ERR] CLASH_URL 为空（未配置订阅地址）"
+if [ -n "$URL" ] && ! printf '%s' "$URL" | grep -Eq '^https?://'; then
+  echo "[ERR] CLASH_URL 格式无效：必须以 http:// 或 https:// 开头" >&2
   exit 2
 fi
 
@@ -114,10 +142,10 @@ fi
 # 兜底生成随机 secret
 if [ -z "$Secret" ]; then
   if command -v openssl >/dev/null 2>&1; then
-    Secret="$(openssl rand -hex 32)"
+    Secret="$(openssl rand -hex 16)"
   else
     # 32 bytes -> 64 hex chars
-    Secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    Secret="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   fi
 fi
 
@@ -174,7 +202,7 @@ ensure_ui_links() {
 
 force_write_controller_and_ui() {
   local file="$1"
-  local controller="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
+  local controller="${EXTERNAL_CONTROLLER:-0.0.0.0:9090}"
 
   [ -n "$file" ] || return 1
 
@@ -244,11 +272,11 @@ fix_external_ui_by_safe_paths() {
 CLASH_HTTP_PORT="${CLASH_HTTP_PORT:-7890}"
 CLASH_SOCKS_PORT="${CLASH_SOCKS_PORT:-7891}"
 CLASH_REDIR_PORT="${CLASH_REDIR_PORT:-7892}"
-CLASH_LISTEN_IP="${CLASH_LISTEN_IP:-127.0.0.1}"
+CLASH_LISTEN_IP="${CLASH_LISTEN_IP:-0.0.0.0}"
 CLASH_ALLOW_LAN="${CLASH_ALLOW_LAN:-false}"
 
 EXTERNAL_CONTROLLER_ENABLED="${EXTERNAL_CONTROLLER_ENABLED:-true}"
-EXTERNAL_CONTROLLER="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
+EXTERNAL_CONTROLLER="${EXTERNAL_CONTROLLER:-0.0.0.0:9090}"
 
 ALLOW_INSECURE_TLS="${ALLOW_INSECURE_TLS:-false}"
 
@@ -347,6 +375,10 @@ ensure_subconverter() {
   local bin="${Server_Dir}/tools/subconverter/subconverter"
   local port="25500"
 
+  # 自动获取服务器IP
+  local host_ip
+  host_ip="$(hostname -I | awk '{print $1}')"
+
   # 没有二进制直接跳过
   if [ ! -x "$bin" ]; then
     echo "[WARN] subconverter bin not found: $bin"
@@ -356,20 +388,20 @@ ensure_subconverter() {
 
   # 已在监听则认为就绪
   if ss -lntp 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
-    export SUBCONVERTER_URL="${SUBCONVERTER_URL:-http://127.0.0.1:${port}}"
+    export SUBCONVERTER_URL="${SUBCONVERTER_URL:-http://${host_ip}:${port}}"
     export SUBCONVERTER_READY="true"
     return 0
   fi
 
-  # 启动（后台）
+  # 启动（监听所有IP）
   echo "[INFO] starting subconverter..."
-  (cd "${Server_Dir}/tools/subconverter" && nohup "./subconverter" >/dev/null 2>&1 &)
+  (cd "${Server_Dir}/tools/subconverter" && nohup "./subconverter" -listen 0.0.0.0:${port} >/dev/null 2>&1 &)
 
   # 等待端口起来
   for _ in 1 2 3 4 5; do
     sleep 1
     if ss -lntp 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
-      export SUBCONVERTER_URL="${SUBCONVERTER_URL:-http://127.0.0.1:${port}}"
+      export SUBCONVERTER_URL="${SUBCONVERTER_URL:-http://${host_ip}:${port}}"
       export SUBCONVERTER_READY="true"
       echo "[OK] subconverter ready at ${SUBCONVERTER_URL}"
       return 0
@@ -431,15 +463,21 @@ ensure_fallback_config() {
 }
 SKIP_CONFIG_REBUILD=false
 
-# systemd 模式下若 URL 为空：直接兜底启动
-if [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; then
-  echo -e "\033[33m[WARN]\033[0m SYSTEMD_MODE=true 且 CLASH_URL 为空，跳过订阅更新，使用本地兜底配置启动"
+# systemd 模式下 URL 为空，或手动模式下用户回车跳过：直接兜底启动
+if { [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; } || [ "${MANUAL_EMPTY_URL_FALLBACK:-false}" = "true" ]; then
+  if [ "${SYSTEMD_MODE}" = "true" ]; then
+    echo -e "\033[33m[WARN]\033[0m SYSTEMD_MODE=true 且 CLASH_URL 为空，跳过订阅更新，使用本地兜底配置启动"
+  else
+    echo -e "\033[33m[WARN]\033[0m 手动模式未填写订阅地址，跳过订阅更新，使用本地兜底配置启动"
+  fi
   ensure_fallback_config || true
   SKIP_CONFIG_REBUILD=true
 fi
 
+CLASH_AUTO_UPDATE="${CLASH_AUTO_UPDATE:-true}"
+
 #################### Clash 订阅地址检测及配置文件下载 ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   echo -e '\n正在检测订阅地址...'
   Text1="Clash订阅地址可访问！"
   Text2="Clash订阅地址不可访问！"
@@ -484,7 +522,7 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
 fi
 
 #################### 下载订阅并生成 config.yaml（非兜底路径） ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   ensure_subconverter || true
   echo -e '\n正在下载Clash配置文件...'
   Text3="配置文件clash.yaml下载成功！"
@@ -638,11 +676,30 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
   fi
 fi
 
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" != "true" ]; then
+  echo -e "\033[33m[WARN]\033[0m 已关闭自动更新订阅，优先使用本地已有配置启动"
+
+  # 1) 优先使用已有 conf/config.yaml；没有才 fallback
+  if [ ! -s "$Conf_Dir/config.yaml" ]; then
+    ensure_fallback_config || true
+  fi
+
+  # 2) 补齐运行必须字段
+  force_write_controller_and_ui "$Conf_Dir/config.yaml" || true
+  force_write_secret "$Conf_Dir/config.yaml" || true
+
+  # 3) 明确指定运行配置
+  CONFIG_FILE="$Conf_Dir/config.yaml"
+
+  # 4) 跳过后续“下载 / 转换 / 拼接”流程
+  SKIP_CONFIG_REBUILD=true
+fi
+
 # =========================================================
 # 判断订阅是否已是完整 Clash YAML（Meta / Mihomo / Premium）
 # 若是完整配置，则直接使用，跳过后续代理拆解与拼接
 # =========================================================
-if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.yaml"; then
+if [ -s "$Temp_Dir/clash.yaml" ] && grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.yaml"; then
   echo "[INFO] subscription is a full Clash config, use it directly"
   cp -f "$Temp_Dir/clash.yaml" "$Conf_Dir/config.yaml"
 
@@ -667,8 +724,8 @@ if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$Temp_Dir/clash.ya
     ln -sfn "$Dashboard_Src" "$Conf_Dir/ui" 2>/dev/null || true
   fi
 
-    SKIP_CONFIG_REBUILD=true
-  fi
+  SKIP_CONFIG_REBUILD=true
+fi
 
 #################### 订阅转换/拼接（非兜底路径） ####################
 if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
@@ -822,12 +879,33 @@ Clash_Bin="$(resolve_clash_bin "$Server_Dir" "$CpuArch")"
 ReturnStatus=$?
 
 if [ "$ReturnStatus" -eq 0 ]; then
+  echo ''
+  if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
+    SERVER_IP="$(hostname -I | awk '{print $1}')"
+    API_PORT="${EXTERNAL_CONTROLLER##*:}"
+
+    echo -e "Clash Dashboard 访问地址: http://${SERVER_IP}:${API_PORT}/ui"
+
+    SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
+    SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
+
+    if [ "$SHOW_SECRET" = "true" ]; then
+      echo -e "Secret: ${Secret}"
+    elif [ "$SHOW_SECRET_MASKED" = "true" ]; then
+      masked="${Secret:0:4}****${Secret: -4}"
+      echo -e "Secret: ${masked}  (set CLASH_SHOW_SECRET=true to show full)"
+    else
+      echo -e "Secret: 已生成（未显示）。查看：${CONFIG_FILE} 或 .env"
+    fi
+  else
+    echo -e "External Controller (Dashboard) 已禁用"
+  fi
+  echo ''
+
   if [ "${SYSTEMD_MODE:-false}" = "true" ]; then
     echo "[INFO] SYSTEMD_MODE=true，前台启动交给 systemd 监管"
     echo "[INFO] Using config: $CONFIG_FILE"
     echo "[INFO] Using runtime dir: $RUNTIME_DIR"
-
-    # systemd 前台：只用 -f 指定配置文件，-d 作为工作目录
     exec "$Clash_Bin" -f "$CONFIG_FILE" -d "$RUNTIME_DIR"
   else
     echo "[INFO] 后台启动 (nohup)"
@@ -849,29 +927,6 @@ if [ "${SYSTEMD_MODE:-false}" = "true" ]; then
 else
   if_success "$Text5" "$Text6" "$ReturnStatus"
 fi
-
-#################### 输出信息 ####################
-
-echo ''
-if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
-  echo -e "Clash Dashboard 访问地址: http://${EXTERNAL_CONTROLLER}/ui"
-
-  SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
-  SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
-
-  if [ "$SHOW_SECRET" = "true" ]; then
-    echo -e "Secret: ${Secret}"
-  elif [ "$SHOW_SECRET_MASKED" = "true" ]; then
-    # 脱敏：前4后4
-    masked="${Secret:0:4}****${Secret: -4}"
-    echo -e "Secret: ${masked}  (set CLASH_SHOW_SECRET=true to show full)"
-  else
-    echo -e "Secret: 已生成（未显示）。查看：/opt/clash-for-linux/conf/config.yaml 或 .env"
-  fi
-else
-  echo -e "External Controller (Dashboard) 已禁用"
-fi
-echo ''
 
 #################### 写入代理环境变量文件 ####################
 

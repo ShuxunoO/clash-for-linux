@@ -1,142 +1,152 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================
-# 参数（对标 install.sh + install_systemd.sh）
-# =========================
-Install_Dir="${CLASH_INSTALL_DIR:-/opt/clash-for-linux}"
-Service_Name="clash-for-linux"
-Service_User="root"
-Service_Group="root"
-Unit_Path="/etc/systemd/system/${Service_Name}.service"
+# More accurate uninstall for clash-for-linux
+SERVICE_NAME="clash-for-linux"
+UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 
-# =========================
-# 彩色输出
-# =========================
 RED='\033[31m'
 GREEN='\033[32m'
 YELLOW='\033[33m'
 NC='\033[0m'
-
 info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*"; }
 
-# =========================
-# 前置校验
-# =========================
 if [ "$(id -u)" -ne 0 ]; then
   err "需要 root 权限执行卸载脚本（请使用 sudo bash uninstall.sh）"
   exit 1
 fi
 
-info "开始卸载 ${Service_Name} ..."
-info "Install_Dir=${Install_Dir}"
+# Candidate install dirs:
+# 1) explicit CLASH_INSTALL_DIR
+# 2) working directory if it looks like clash-for-linux
+# 3) service WorkingDirectory / ExecStart path inferred from unit
+# 4) common defaults
+candidates=()
+[ -n "${CLASH_INSTALL_DIR:-}" ] && candidates+=("${CLASH_INSTALL_DIR}")
+PWD_BASENAME="$(basename "${PWD}")"
+if [ "$PWD_BASENAME" = "clash-for-linux" ] && [ -f "${PWD}/start.sh" ]; then
+  candidates+=("${PWD}")
+fi
 
-# =========================
-# 1) 优雅停止（优先 shutdown.sh，再 systemd）
-# =========================
-if [ -f "${Install_Dir}/shutdown.sh" ]; then
+if [ -f "$UNIT_PATH" ]; then
+  wd="$(sed -nE 's#^WorkingDirectory=(.*)#\1#p' "$UNIT_PATH" | head -n1 || true)"
+  [ -n "$wd" ] && candidates+=("$wd")
+
+  exec_path="$(sed -nE 's#^ExecStart=/bin/bash[[:space:]]+([^[:space:]]+/start\.sh).*#\1#p' "$UNIT_PATH" | head -n1 || true)"
+  if [ -n "$exec_path" ]; then
+    candidates+=("$(dirname "$exec_path")")
+  fi
+fi
+
+candidates+=("/root/clash-for-linux" "/opt/clash-for-linux")
+
+# normalize + uniq + choose first existing dir containing start.sh or shutdown.sh
+INSTALL_DIR=""
+declare -A seen
+for d in "${candidates[@]}"; do
+  [ -n "$d" ] || continue
+  d="${d%/}"
+  [ -n "$d" ] || continue
+  if [ -z "${seen[$d]:-}" ]; then
+    seen[$d]=1
+    if [ -d "$d" ] && { [ -f "$d/start.sh" ] || [ -f "$d/shutdown.sh" ] || [ -d "$d/conf" ]; }; then
+      INSTALL_DIR="$d"
+      break
+    fi
+  fi
+done
+
+if [ -z "$INSTALL_DIR" ]; then
+  warn "未能自动识别安装目录，将按候选路径继续清理 systemd / 环境文件。"
+else
+  info "识别到安装目录: $INSTALL_DIR"
+fi
+
+info "开始卸载 ${SERVICE_NAME} ..."
+
+# 1) graceful stop
+if [ -n "$INSTALL_DIR" ] && [ -f "${INSTALL_DIR}/shutdown.sh" ]; then
   info "执行 shutdown.sh（优雅停止）..."
-  bash "${Install_Dir}/shutdown.sh" >/dev/null 2>&1 || true
+  bash "${INSTALL_DIR}/shutdown.sh" >/dev/null 2>&1 || true
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
   info "停止并禁用 systemd 服务..."
-  systemctl stop "${Service_Name}.service" >/dev/null 2>&1 || true
-  systemctl disable "${Service_Name}.service" >/dev/null 2>&1 || true
+  systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+  systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
 fi
 
-# =========================
-# 2) 兜底：按 PID 文件杀进程（对标 unit 的 PIDFile）
-# =========================
-PID_FILE="${Install_Dir}/temp/clash.pid"
-if [ -f "$PID_FILE" ]; then
-  PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then
-    info "检测到 PID=${PID}，尝试停止..."
-    kill "$PID" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$PID" 2>/dev/null; then
-      warn "进程仍在运行，强制 kill -9 ${PID}"
-      kill -9 "$PID" 2>/dev/null || true
+# 2) stop process by pid file from all likely dirs
+for d in "/root/clash-for-linux" "/opt/clash-for-linux" "${INSTALL_DIR:-}"; do
+  [ -n "$d" ] || continue
+  PID_FILE="$d/temp/clash.pid"
+  if [ -f "$PID_FILE" ]; then
+    PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then
+      info "检测到 PID=${PID}（来自 $PID_FILE），尝试停止..."
+      kill "$PID" 2>/dev/null || true
+      sleep 1
+      if kill -0 "$PID" 2>/dev/null; then
+        warn "进程仍在运行，强制 kill -9 ${PID}"
+        kill -9 "$PID" 2>/dev/null || true
+      fi
     fi
-    ok "已停止 clash 进程（PIDFile）"
+    rm -f "$PID_FILE" || true
   fi
-fi
+done
 
-# 再兜底：按进程名（系统可能有多个 clash，不建议无脑 pkill -9；先提示再杀）
-if pgrep -x clash >/dev/null 2>&1; then
-  warn "检测到仍有 clash 进程存在（可能非本项目），尝试温和结束..."
-  pkill -x clash >/dev/null 2>&1 || true
-  sleep 1
-fi
-if pgrep -x clash >/dev/null 2>&1; then
-  warn "仍残留 clash 进程，执行 pkill -9（可能影响其它 clash 实例）..."
-  pkill -9 -x clash >/dev/null 2>&1 || true
-fi
+# 兜底：按完整路径匹配，避免误杀其他 clash
+pkill -f '/clash-for-linux/.*/clash' >/dev/null 2>&1 || true
+pkill -f '/clash-for-linux/.*/mihomo' >/dev/null 2>&1 || true
+sleep 1
+pkill -9 -f '/clash-for-linux/.*/clash' >/dev/null 2>&1 || true
+pkill -9 -f '/clash-for-linux/.*/mihomo' >/dev/null 2>&1 || true
 
-# =========================
-# 3) 删除 systemd unit（对标 install_systemd.sh）
-# =========================
-if [ -f "$Unit_Path" ]; then
-  rm -f "$Unit_Path"
-  ok "已移除 systemd 单元: ${Unit_Path}"
+# 3) remove unit and related files
+if [ -f "$UNIT_PATH" ]; then
+  rm -f "$UNIT_PATH"
+  ok "已移除 systemd 单元: ${UNIT_PATH}"
 fi
-
-# drop-in（万一用户自定义过）
-if [ -d "/etc/systemd/system/${Service_Name}.service.d" ]; then
-  rm -rf "/etc/systemd/system/${Service_Name}.service.d"
-  ok "已移除 drop-in: /etc/systemd/system/${Service_Name}.service.d"
+if [ -d "/etc/systemd/system/${SERVICE_NAME}.service.d" ]; then
+  rm -rf "/etc/systemd/system/${SERVICE_NAME}.service.d"
+  ok "已移除 drop-in: /etc/systemd/system/${SERVICE_NAME}.service.d"
 fi
-
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl reset-failed >/dev/null 2>&1 || true
 fi
 
-# =========================
-# 4) 清理默认配置/环境脚本/命令入口
-# =========================
-if [ -f "/etc/default/${Service_Name}" ]; then
-  rm -f "/etc/default/${Service_Name}"
-  ok "已移除: /etc/default/${Service_Name}"
+# 4) cleanup env / command entry
+rm -f "/etc/default/${SERVICE_NAME}" >/dev/null 2>&1 || true
+rm -f "/etc/profile.d/clash-for-linux.sh" >/dev/null 2>&1 || true
+rm -f "/usr/local/bin/clashctl" >/dev/null 2>&1 || true
+for d in "/root/clash-for-linux" "/opt/clash-for-linux" "${INSTALL_DIR:-}"; do
+  [ -n "$d" ] || continue
+  rm -f "$d/temp/clash-for-linux.sh" >/dev/null 2>&1 || true
+done
+
+# 5) remove install dirs
+removed_any=false
+for d in "${INSTALL_DIR:-}" "/root/clash-for-linux" "/opt/clash-for-linux"; do
+  [ -n "$d" ] || continue
+  if [ -d "$d" ] && { [ -f "$d/start.sh" ] || [ -d "$d/conf" ] || [ "$d" = "$INSTALL_DIR" ]; }; then
+    rm -rf "$d"
+    ok "已移除安装目录: $d"
+    removed_any=true
+  fi
+done
+
+if [ "$removed_any" = false ]; then
+  warn "未发现可删除的安装目录"
 fi
 
-# 运行时 Env_File 可能写到 /etc/profile.d 或 temp，这里都清
-if [ -f "/etc/profile.d/clash-for-linux.sh" ]; then
-  rm -f "/etc/profile.d/clash-for-linux.sh"
-  ok "已移除: /etc/profile.d/clash-for-linux.sh"
-fi
-
-if [ -f "${Install_Dir}/temp/clash-for-linux.sh" ]; then
-  rm -f "${Install_Dir}/temp/clash-for-linux.sh" || true
-  ok "已移除: ${Install_Dir}/temp/clash-for-linux.sh"
-fi
-
-if [ -f "/usr/local/bin/clashctl" ]; then
-  rm -f "/usr/local/bin/clashctl"
-  ok "已移除: /usr/local/bin/clashctl"
-fi
-
-# =========================
-# 5) 删除安装目录
-# =========================
-if [ -d "$Install_Dir" ]; then
-  rm -rf "$Install_Dir"
-  ok "已移除安装目录: ${Install_Dir}"
-else
-  warn "未找到安装目录: ${Install_Dir}"
-fi
-
-# =========================
-# 7) 提示：当前终端代理变量需要手动清
-# =========================
 echo
 warn "如果你曾执行 proxy_on，当前终端可能仍保留代理环境变量。可执行："
 echo "  unset http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY"
 echo "  # 或关闭终端重新打开"
 
 echo
-ok "卸载完成（root-only 模式）✅"
+ok "卸载完成 ✅"

@@ -47,4 +47,5 @@ else
     exitWithError "Unsupported Linux distribution"
 fi
 
-echo "CPU architecture: $CpuArch"
+log_info() { echo "[INFO] $*"; }
+log_info "CPU architecture: $CpuArch"

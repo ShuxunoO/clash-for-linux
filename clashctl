@@ -35,7 +35,9 @@ PID_FILE="$CLASH_HOME/temp/clash.pid"
 SUBSCRIPTION_FILE="$CLASH_HOME/conf/subscriptions.list"
 
 use_systemd() {
-	command -v systemctl >/dev/null 2>&1
+	command -v systemctl >/dev/null 2>&1 || return 1
+	systemctl show --property=Version --value >/dev/null 2>&1 || return 1
+	return 0
 }
 
 action_with_systemd() {
@@ -78,10 +80,11 @@ set_env_var() {
 		echo "[ERROR] 未找到 .env 文件: $ENV_FILE" >&2
 		exit 1
 	fi
-	local escaped
+	local escaped escaped_sed
 	escaped=$(printf "%s" "$value" | sed "s/'/'\"'\"'/g")
+	escaped_sed=$(printf "%s" "$escaped" | sed 's/[\\&@]/\\&/g')
 	if grep -q "^export ${key}=" "$ENV_FILE"; then
-		sed -i "s@^export ${key}=.*@export ${key}='${escaped}'@" "$ENV_FILE"
+		sed -i "s@^export ${key}=.*@export ${key}='${escaped_sed}'@" "$ENV_FILE"
 	else
 		echo "export ${key}='${escaped}'" >> "$ENV_FILE"
 	fi

@@ -1,5 +1,3 @@
-[TOC]
-
 # 关于本项目
 
 **clash-for-linux** 是一个面向 Linux 服务器/桌面环境的 **Clash 自动化运行与管理脚本集**。
@@ -11,11 +9,10 @@
 </p>
 
 本项目主要解决以下问题：
-
-- ❌ 官方 Clash 二进制下载、架构区分、配置部署繁琐
-- ❌ 手动管理 Clash 进程、端口、环境变量不稳定
-- ❌ systemd 服务、权限、安全配置缺乏统一方案
-- ❌ 多订阅 / 配置混乱，升级和回滚成本高
+- ✕ 官方 Clash 二进制下载、架构区分、配置部署繁琐
+- ✕ 手动管理 Clash 进程、端口、环境变量不稳定
+- ✕ systemd 服务、权限、安全配置缺乏统一方案
+- ✕ 多订阅 / 配置混乱，升级和回滚成本高
 
 ### 核心特性
 
@@ -28,7 +25,7 @@
   - 自动生成或自定义 Secret
   - 默认开启 TLS 校验
 - 🧪 **端口自动检测与分配**，避免冲突
-- 🔄 **多订阅管理（clashctl）**，支持订阅切换、更新、日志查看
+- 🔄 **多订阅管理（clashctl）**，支持自动订阅切换（Vmess / V2Ray、Shadowsocks (SS)、ShadowsocksR (SSR)、Trojan、VLESS、Hysteria / Hysteria2、TUIC、HTTP / SOCKS5）
 - 🧠 **Mixin 机制**，可按需追加/覆盖 Clash 配置
 - 🌐 **Tun 模式支持**（需 Clash Meta / Premium）
 
@@ -45,13 +42,6 @@
 - ✅ 本项目是 **Clash / yacd 的工程化封装**，并非 Clash 的替代品
 - ❌ 不适合只想“点点 UI 就用”的纯桌面用户
 - ❌ 不包含任何节点、机场或订阅推荐
-
-### 更新状态
-
-📅 **持续维护中**
- 最近更新：**2026-01-15**
-
-
 
 # 安装
 
@@ -126,6 +116,26 @@ http://127.0.0.1:9090/ui
 ```
 
 > 不建议直接将管理端口暴露到公网。
+
+如果想要**公网访问**
+编辑 `.env` 文件，设置公网访问（对外端口不用改，改了机器人也能扫到，密钥设置的长点就行）：
+
+```
+sudo bash -c 'echo "EXTERNAL_CONTROLLER=0.0.0.0:9090" > /opt/clash-for-linux/.env'
+```
+
+配置完成后，**重启服务使配置生效**：
+
+```
+sudo systemctl restart clash-for-linux.service
+```
+
+密钥留空时：脚本可自动生成随机值
+获取密钥命令：
+```
+sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' "/opt/clash-for-linux/conf/config.yaml" | head -n 1
+```
+
 
 ------
 

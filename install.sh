@@ -5,7 +5,7 @@ set -euo pipefail
 # 基础参数
 # =========================
 Server_Dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-Install_Dir="${CLASH_INSTALL_DIR:-/opt/clash-for-linux}"
+Install_Dir="${CLASH_INSTALL_DIR:-$Server_Dir}"
 Service_Name="clash-for-linux"
 Service_User="root"
 Service_Group="root"
@@ -136,7 +136,6 @@ if [[ -z "${CpuArch:-}" ]]; then
   err "无法识别 CPU 架构"
   exit 1
 fi
-info "CPU architecture: ${CpuArch}"
 
 # =========================
 # .env 写入工具：write_env_kv（必须在 prompt 之前定义）
@@ -361,10 +360,10 @@ if command -v systemctl >/dev/null 2>&1; then
   CLASH_SERVICE_USER="$Service_User" CLASH_SERVICE_GROUP="$Service_Group" "$Install_Dir/scripts/install_systemd.sh"
 
   if [ "${CLASH_ENABLE_SERVICE:-true}" = "true" ]; then
-    systemctl enable "${Service_Name}.service" >/dev/null 2>&1 || true
+    systemctl start "${Service_Name}.service" || true
   fi
   if [ "${CLASH_START_SERVICE:-true}" = "true" ]; then
-    systemctl start "${Service_Name}.service" >/dev/null 2>&1 || true
+    systemctl start "${Service_Name}.service" || true
   fi
 
   if systemctl is-enabled --quiet "${Service_Name}.service" 2>/dev/null; then
@@ -474,28 +473,65 @@ section "控制面板"
 api_port="$(parse_port "${EXTERNAL_CONTROLLER}")"
 api_host="${EXTERNAL_CONTROLLER%:*}"
 
+get_public_ip() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null \
+      || curl -4 -fsS --max-time 3 https://ifconfig.me 2>/dev/null \
+      || curl -4 -fsS --max-time 3 https://ipv4.icanhazip.com 2>/dev/null \
+      || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --timeout=3 https://api.ipify.org 2>/dev/null \
+      || wget -qO- --timeout=3 https://ifconfig.me 2>/dev/null \
+      || wget -qO- --timeout=3 https://ipv4.icanhazip.com 2>/dev/null \
+      || true
+  else
+    true
+  fi
+}
+
 if [[ -z "$api_host" ]] || [[ "$api_host" == "$EXTERNAL_CONTROLLER" ]]; then
   api_host="127.0.0.1"
 fi
 
+if [[ "$api_host" == "0.0.0.0" ]] || [[ "$api_host" == "::" ]] || [[ "$api_host" == "localhost" ]]; then
+  api_host="$(get_public_ip | tr -d '\r\n')"
+  [[ -z "$api_host" ]] && api_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [[ -z "$api_host" ]] && api_host="127.0.0.1"
+fi
+
 CONF_DIR="$Install_Dir/conf"
-CONF_FILE="$CONF_DIR/config.yaml"
+TEMP_DIR="$Install_Dir/temp"
 
 SECRET_VAL=""
-if wait_secret_ready "$CONF_FILE" 6; then
-  SECRET_VAL="$(read_secret_from_config "$CONF_FILE" || true)"
-fi
+SECRET_FILE=""
+
+for _ in {1..15}; do
+  for f in \
+    "$TEMP_DIR/config.yaml" \
+    "$CONF_DIR/config.yaml"
+  do
+    SECRET_VAL="$(read_secret_from_config "$f" 2>/dev/null || true)"
+    if [[ -n "$SECRET_VAL" ]]; then
+      SECRET_FILE="$f"
+      break 2
+    fi
+  done
+  sleep 0.2
+done
 
 dash="http://${api_host}:${api_port}/ui"
 log "🌐 Dashboard：$(url "$dash")"
 
+SHOW_FILE="${SECRET_FILE:-$CONF_DIR/config.yaml}"
+
 if [[ -n "$SECRET_VAL" ]]; then
-  MASKED="${SECRET_VAL:0:4}****${SECRET_VAL: -4}"
+  MASKED="${SECRET_VAL}"
   log "🔐 Secret：${C_YELLOW}${MASKED}${C_NC}"
-  log "   查看完整 Secret：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_FILE\" | head -n 1")"
+  # log "   查看完整 Secret：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$SHOW_FILE\" | head -n 1")"
 else
   log "🔐 Secret：${C_YELLOW}启动中暂未读到（稍后再试）${C_NC}"
-  log "   稍后查看：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_FILE\" | head -n 1")"
+  log "   稍后查看：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_DIR/config.yaml\" | head -n 1")"
+  log "   也可检查运行态：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$TEMP_DIR/config.yaml\" | head -n 1")"
 fi
 
 # =========================
