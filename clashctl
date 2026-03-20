@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-Service_Name="clash-for-linux.service"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_NAME="clash-for-linux.service"
 PROFILED_FILE="/etc/profile.d/clash-for-linux.sh"
-ENV_FILE="$Server_Dir/.env"
-CONF_FILE="$Server_Dir/conf/config.yaml"
-TEMP_CONF_FILE="$Server_Dir/temp/config.yaml"
+ENV_FILE="$PROJECT_DIR/.env"
+RUNTIME_DIR="$PROJECT_DIR/runtime"
+RUNTIME_CONFIG="$RUNTIME_DIR/config.yaml"
+STATE_FILE="$RUNTIME_DIR/state.env"
+
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/scripts/service_lib.sh"
 
 log()   { printf "%b\n" "$*"; }
 info()  { log "\033[36m[INFO]\033[0m $*"; }
@@ -19,34 +23,43 @@ usage() {
 Usage:
   clashctl COMMAND [OPTIONS]
 
-Commands:
-    on                    开启代理
-    off                   关闭代理
-    status                内核状况
-    proxy                 系统代理
-    ui                    Web 面板
-    secret                Web 密钥
-    sub                   订阅管理
-    upgrade               升级内核
-    tun                   Tun 模式
-    mixin                 Mixin 配置
+Core Commands:
+  on                     开启当前终端代理
+  off                    关闭当前终端代理
+  start                  启动 Clash
+  stop                   停止 Clash
+  restart                重新生成配置并重启
+  status                 查看当前状态
+  update                 git pull + 生成配置 + 重启
+  generate               仅生成配置，不启动
+  mode                   查看当前运行模式（systemd/script/none）
 
-Global Options:
-    -h, --help            显示帮助信息
+Utility Commands:
+  ui                     输出 Dashboard 地址
+  secret                 输出当前 secret
+  sub show               查看订阅地址
+  sub update             重新生成配置并重启
+  tun status|on|off      查看/启用/关闭 Tun
+  mixin status|on|off    查看/启用/关闭 Mixin
+  doctor                 健康检查
+
+Options:
+  --from-systemd         内部使用，避免 stop 递归调用 systemctl
+  -h, --help             显示帮助信息
 
 Examples:
-    clashctl on
-    clashctl off
-    clashctl status
-    clashctl proxy status
-    clashctl ui
-    clashctl secret
-    clashctl sub show
-    clashctl sub update
-    clashctl tun status
-    clashctl mixin status
-
-💡 clashon 同 clashctl on，Tab 补全更方便！
+  clashctl on
+  clashctl off
+  clashctl start
+  clashctl stop
+  clashctl restart
+  clashctl status
+  clashctl update
+  clashctl generate
+  clashctl ui
+  clashctl secret
+  clashctl sub show
+  clashctl tun on
 EOF
 }
 
@@ -57,37 +70,36 @@ require_profiled() {
   fi
 }
 
-has_systemd() {
-  command -v systemctl >/dev/null 2>&1
-}
-
-service_exists() {
-  has_systemd || return 1
-
-  local load_state
-  load_state="$(systemctl show "$Service_Name" --property=LoadState --value 2>/dev/null || true)"
-
-  [ -n "$load_state" ] && [ "$load_state" != "not-found" ]
-}
-
-service_is_active() {
-  service_exists || return 1
-  systemctl is-active --quiet "$Service_Name"
-}
-
-read_config_value() {
+read_runtime_config_value() {
   local key="$1"
-  local f
-  for f in "$TEMP_CONF_FILE" "$CONF_FILE"; do
-    if [ -f "$f" ]; then
-      sed -nE "s/^[[:space:]]*${key}:[[:space:]]*//p" "$f" \
-        | head -n 1 \
-        | tr -d '\r' \
-        | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
-      return 0
-    fi
-  done
-  return 1
+  [ -f "$RUNTIME_CONFIG" ] || return 1
+
+  sed -nE "s/^[[:space:]]*${key}:[[:space:]]*//p" "$RUNTIME_CONFIG" \
+    | head -n 1 \
+    | tr -d '\r' \
+    | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
+}
+
+write_env_bool() {
+  local key="$1"
+  local value="$2"
+
+  if [ ! -f "$ENV_FILE" ]; then
+    err "未找到 .env: $ENV_FILE"
+    exit 1
+  fi
+
+  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE"; then
+    sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}=\"${value}\"|g" "$ENV_FILE"
+  else
+    echo "export ${key}=\"${value}\"" >> "$ENV_FILE"
+  fi
+}
+
+read_state_value() {
+  local key="$1"
+  [ -f "$STATE_FILE" ] || return 1
+  sed -nE "s/^${key}=(.*)$/\1/p" "$STATE_FILE" | head -n 1
 }
 
 cmd_on() {
@@ -104,63 +116,237 @@ cmd_off() {
   proxy_off
 }
 
-cmd_status() {
-  local proc_info=""
-  proc_info="$(ps -eo pid,ppid,cmd | grep -E '[c]lash-linux|[m]ihomo' || true)"
-
-  echo "=== Clash Status ==="
-
-  if service_exists; then
-    local active_state enabled_state
-    active_state="$(systemctl is-active "$Service_Name" 2>/dev/null || true)"
-    enabled_state="$(systemctl is-enabled "$Service_Name" 2>/dev/null || true)"
-
-    echo "Service: installed"
-    echo "Active : ${active_state:-unknown}"
-    echo "Enabled: ${enabled_state:-unknown}"
-
-    if [ -n "$proc_info" ]; then
-      echo
-      echo "Process:"
-      echo "$proc_info"
-    fi
-
-    return 0
-  fi
-
-  if [ -n "$proc_info" ]; then
-    warn "未检测到 systemd 服务，但发现 Clash 进程正在运行"
-    echo
-    echo "Process:"
-    echo "$proc_info"
-    return 0
-  fi
-
-  warn "未检测到 systemd 服务，也未发现 Clash 进程"
-  return 1
+cmd_mode() {
+  detect_mode
 }
 
-cmd_proxy() {
-  require_profiled
-  # shellcheck disable=SC1090
-  source "$PROFILED_FILE"
+cmd_start() {
+  local mode
+  mode="$(detect_mode)"
 
-  local sub="${1:-status}"
-  case "$sub" in
-    on) proxy_on ;;
-    off) proxy_off ;;
-    status) proxy_status ;;
+  case "$mode" in
+    systemd)
+      start_via_systemd
+      ok "Clash started via systemd"
+      ;;
+    script|none)
+      start_via_script
+      ;;
     *)
-      err "未知 proxy 子命令: $sub"
-      echo "用法: clashctl proxy [on|off|status]"
+      err "未知模式: $mode"
       exit 1
       ;;
   esac
 }
 
+cmd_stop() {
+  local from_systemd="${1:-false}"
+  local mode
+  mode="$(detect_mode)"
+
+  case "$mode" in
+    systemd)
+      if [ "$from_systemd" = "true" ]; then
+        # 被 systemd ExecStop 调用时，不能再反向 systemctl stop 自己
+        ok "Stop requested from systemd, skip recursive systemctl stop"
+        exit 0
+      fi
+      stop_via_systemd
+      ok "Clash stopped via systemd"
+      ;;
+    script)
+      stop_via_script
+      ok "Clash stopped via script mode"
+      ;;
+    none)
+      info "Clash is not running"
+      ;;
+    *)
+      err "未知模式: $mode"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_generate() {
+  "$PROJECT_DIR/scripts/generate_config.sh"
+  ok "Config generated"
+}
+
+cmd_restart() {
+  "$PROJECT_DIR/scripts/generate_config.sh"
+
+  local mode
+  mode="$(detect_mode)"
+
+  case "$mode" in
+    systemd)
+      restart_via_systemd
+      ok "Clash restarted via systemd"
+      ;;
+    script|none)
+      restart_via_script
+      ok "Clash restarted via script mode"
+      ;;
+    *)
+      err "未知模式: $mode"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_update() {
+  git -C "$PROJECT_DIR" pull
+  "$PROJECT_DIR/scripts/generate_config.sh"
+
+  local mode
+  mode="$(detect_mode)"
+
+  case "$mode" in
+    systemd)
+      restart_via_systemd
+      ok "Project updated and restarted via systemd"
+      ;;
+    script|none)
+      restart_via_script
+      ok "Project updated and restarted via script mode"
+      ;;
+    *)
+      err "未知模式: $mode"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_status() {
+  local mode running="no"
+
+  mode="$(detect_mode)"
+
+  case "$mode" in
+    systemd)
+      if systemctl is-active --quiet "$SERVICE_NAME"; then
+        running="yes"
+      fi
+      ;;
+    script)
+      if is_script_running; then
+        running="yes"
+      fi
+      ;;
+    none)
+      running="no"
+      ;;
+  esac
+
+  echo "=== Clash Status ==="
+  echo "Mode       : $mode"
+  echo "Running    : $running"
+  echo "Config     : $RUNTIME_CONFIG"
+
+  if [ "$mode" = "systemd" ] && service_unit_exists; then
+    echo "Service    : installed"
+    echo "Active     : $(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
+    echo "Enabled    : $(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
+  fi
+
+  if [ "$mode" = "script" ]; then
+    local pid
+    pid="$(read_pid 2>/dev/null || true)"
+    echo "PID        : ${pid:-unknown}"
+  fi
+
+  if [ -f "$STATE_FILE" ]; then
+    echo "LastStatus : $(read_state_value LAST_GENERATE_STATUS || true)"
+    echo "LastReason : $(read_state_value LAST_GENERATE_REASON || true)"
+    echo "LastSource : $(read_state_value LAST_CONFIG_SOURCE || true)"
+    echo "LastAt     : $(read_state_value LAST_GENERATE_AT || true)"
+  fi
+
+  local controller
+  controller="$(read_runtime_config_value "external-controller" || true)"
+  if [ -n "${controller:-}" ]; then
+    echo "Dashboard  : $(cmd_ui --raw)"
+  fi
+}
+
+doctor_ok() {
+  printf "\033[32m[OK]\033[0m %s\n" "$*"
+}
+
+doctor_warn() {
+  printf "\033[33m[WARN]\033[0m %s\n" "$*"
+}
+
+doctor_err() {
+  printf "\033[31m[ERROR]\033[0m %s\n" "$*"
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+port_from_controller() {
+  local controller
+  controller="$(read_runtime_config_value "external-controller" || true)"
+  if [ -n "${controller:-}" ]; then
+    printf '%s\n' "${controller##*:}"
+  else
+    printf '9090\n'
+  fi
+}
+
+http_port_from_config() {
+  local v
+
+  v="$(read_runtime_config_value "mixed-port" || true)"
+  if [ -n "${v:-}" ]; then
+    printf '%s\n' "$v"
+    return 0
+  fi
+
+  v="$(read_runtime_config_value "port" || true)"
+  if [ -n "${v:-}" ]; then
+    printf '%s\n' "$v"
+    return 0
+  fi
+
+  printf '7890\n'
+}
+
+check_port_listening() {
+  local port="$1"
+
+  if command_exists ss; then
+    ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+    return $?
+  elif command_exists netstat; then
+    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+    return $?
+  fi
+
+  return 2
+}
+
+check_dashboard_http() {
+  local url="$1"
+
+  if command_exists curl; then
+    curl -fsS --max-time 3 "$url" >/dev/null 2>&1
+    return $?
+  elif command_exists wget; then
+    wget -q -T 3 -O /dev/null "$url" >/dev/null 2>&1
+    return $?
+  fi
+
+  return 2
+}
+
 cmd_ui() {
+  local raw="${1:-}"
   local controller host port
-  controller="$(read_config_value "external-controller" || true)"
+
+  controller="$(read_runtime_config_value "external-controller" || true)"
   [ -n "${controller:-}" ] || controller="127.0.0.1:9090"
 
   host="${controller%:*}"
@@ -169,16 +355,22 @@ cmd_ui() {
   case "$host" in
     0.0.0.0|::|localhost)
       host="$(hostname -I 2>/dev/null | awk '{print $1}')"
-      [ -n "$host" ] || host="127.0.0.1"
+      [ -n "${host:-}" ] || host="127.0.0.1"
       ;;
   esac
 
+  if [ "$raw" = "--raw" ]; then
+    printf 'http://%s:%s/ui\n' "$host" "$port"
+    return 0
+  fi
+
+  echo "Dashboard URL:"
   printf 'http://%s:%s/ui\n' "$host" "$port"
 }
 
 cmd_secret() {
   local secret
-  secret="$(read_config_value "secret" || true)"
+  secret="$(read_runtime_config_value "secret" || true)"
   if [ -n "${secret:-}" ]; then
     echo "$secret"
   else
@@ -189,27 +381,18 @@ cmd_secret() {
 
 cmd_sub() {
   local subcmd="${1:-show}"
+
   case "$subcmd" in
     show)
       if [ -f "$ENV_FILE" ]; then
-        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_URL=' "$ENV_FILE" || true
+        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_URL=' "$ENV_FILE" || echo "CLASH_URL=未配置"
       else
         err "未找到 .env"
         exit 1
       fi
       ;;
     update)
-      if service_exists; then
-        info "重启服务以刷新订阅..."
-        systemctl restart "$Service_Name"
-        ok "订阅刷新完成"
-      elif [ -f "$Server_Dir/restart.sh" ]; then
-        bash "$Server_Dir/restart.sh"
-        ok "订阅刷新完成"
-      else
-        err "未找到 restart.sh"
-        exit 1
-      fi
+      cmd_restart
       ;;
     *)
       err "未知 sub 子命令: $subcmd"
@@ -219,33 +402,9 @@ cmd_sub() {
   esac
 }
 
-cmd_upgrade() {
-  if [ -f "$Server_Dir/update.sh" ]; then
-    bash "$Server_Dir/update.sh"
-  else
-    err "未找到 update.sh"
-    exit 1
-  fi
-}
-
-write_env_bool() {
-  local key="$1"
-  local value="$2"
-
-  if [ ! -f "$ENV_FILE" ]; then
-    err "未找到 .env"
-    exit 1
-  fi
-
-  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE"; then
-    sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}=\"${value}\"|g" "$ENV_FILE"
-  else
-    echo "export ${key}=\"${value}\"" >> "$ENV_FILE"
-  fi
-}
-
 cmd_tun() {
   local subcmd="${1:-status}"
+
   case "$subcmd" in
     status)
       if [ -f "$ENV_FILE" ]; then
@@ -265,7 +424,7 @@ cmd_tun() {
       ;;
     *)
       err "未知 tun 子命令: $subcmd"
-      echo "用法: clashctl tun [on|off|status]"
+      echo "用法: clashctl tun [status|on|off]"
       exit 1
       ;;
   esac
@@ -273,46 +432,307 @@ cmd_tun() {
 
 cmd_mixin() {
   local subcmd="${1:-status}"
-  local mixin_file="$Server_Dir/conf/mixin.yaml"
 
   case "$subcmd" in
     status)
-      if [ -f "$mixin_file" ]; then
-        ok "Mixin 已存在: $mixin_file"
+      if [ -f "$ENV_FILE" ]; then
+        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_MIXIN=' "$ENV_FILE" || echo 'CLASH_MIXIN=未配置'
       else
-        warn "Mixin 不存在: $mixin_file"
+        err "未找到 .env"
+        exit 1
       fi
       ;;
-    edit)
-      ${EDITOR:-vi} "$mixin_file"
+    on)
+      write_env_bool "CLASH_MIXIN" "true"
+      ok "已写入 CLASH_MIXIN=true"
+      ;;
+    off)
+      write_env_bool "CLASH_MIXIN" "false"
+      ok "已写入 CLASH_MIXIN=false"
       ;;
     *)
       err "未知 mixin 子命令: $subcmd"
-      echo "用法: clashctl mixin [status|edit]"
+      echo "用法: clashctl mixin [status|on|off]"
       exit 1
       ;;
   esac
 }
 
-main() {
-  local cmd="${1:-}"
-  shift || true
+cmd_doctor() {
+  local mode running="no"
+  local failed=0
+  local warned=0
 
-  case "$cmd" in
-    on) cmd_on "$@" ;;
-    off) cmd_off "$@" ;;
-    status) cmd_status "$@" ;;
-    proxy) cmd_proxy "$@" ;;
-    ui) cmd_ui "$@" ;;
-    secret) cmd_secret "$@" ;;
-    sub) cmd_sub "$@" ;;
-    upgrade) cmd_upgrade "$@" ;;
-    tun) cmd_tun "$@" ;;
-    mixin) cmd_mixin "$@" ;;
-    -h|--help|"") usage ;;
+  local controller dashboard_url dashboard_port
+  local http_port
+  local secret
+  local last_generate_status last_generate_reason last_config_source
+
+  mode="$(detect_mode)"
+
+  echo "=== Clash Doctor ==="
+  echo "Project    : $PROJECT_DIR"
+  echo "Mode       : $mode"
+  echo "Config     : $RUNTIME_CONFIG"
+  echo
+
+  # 1. 检查运行配置是否存在
+  if [ -s "$RUNTIME_CONFIG" ]; then
+    doctor_ok "runtime config exists: $RUNTIME_CONFIG"
+  else
+    doctor_err "runtime config missing or empty: $RUNTIME_CONFIG"
+    failed=1
+  fi
+
+  # 2. 检查配置里是否还有未渲染占位符
+  if [ -f "$RUNTIME_CONFIG" ]; then
+    if grep -q '\${' "$RUNTIME_CONFIG"; then
+      doctor_err "runtime config contains unresolved placeholders"
+      failed=1
+    else
+      doctor_ok "runtime config has no unresolved placeholders"
+    fi
+  fi
+
+  # 3. 检查 state.env
+  if [ -f "$STATE_FILE" ]; then
+    doctor_ok "state file exists: $STATE_FILE"
+
+    last_generate_status="$(read_state_value LAST_GENERATE_STATUS || true)"
+    last_generate_reason="$(read_state_value LAST_GENERATE_REASON || true)"
+    last_config_source="$(read_state_value LAST_CONFIG_SOURCE || true)"
+
+    if [ -n "${last_generate_status:-}" ]; then
+      if [ "$last_generate_status" = "success" ]; then
+        doctor_ok "last generate status: success (${last_generate_reason:-unknown})"
+      else
+        doctor_warn "last generate status: ${last_generate_status:-unknown} (${last_generate_reason:-unknown})"
+        warned=1
+      fi
+    else
+      doctor_warn "state file exists but LAST_GENERATE_STATUS is empty"
+      warned=1
+    fi
+
+    if [ -n "${last_config_source:-}" ]; then
+      doctor_ok "config source: $last_config_source"
+    fi
+  else
+    doctor_warn "state file missing: $STATE_FILE"
+    warned=1
+  fi
+
+  # 4. 检查运行模式 / 进程状态
+  case "$mode" in
+    systemd)
+      if systemctl is-active --quiet "$SERVICE_NAME"; then
+        running="yes"
+        doctor_ok "systemd service is active"
+      else
+        doctor_err "systemd service is installed but not active"
+        failed=1
+      fi
+      ;;
+    script)
+      if is_script_running; then
+        running="yes"
+        doctor_ok "script mode process is running (pid=$(read_pid 2>/dev/null || echo unknown))"
+      else
+        doctor_err "script mode detected but PID is not running"
+        failed=1
+      fi
+      ;;
+    systemd-installed)
+      doctor_warn "systemd unit exists but service is not running"
+      warned=1
+      ;;
+    none)
+      doctor_warn "no running instance detected"
+      warned=1
+      ;;
     *)
-      err "未知命令: $cmd"
-      echo
+      doctor_err "unknown mode: $mode"
+      failed=1
+      ;;
+  esac
+
+  # 5. 检查 dashboard 地址
+  dashboard_url="$(cmd_ui --raw 2>/dev/null || true)"
+  controller="$(read_runtime_config_value "external-controller" || true)"
+  dashboard_port="$(port_from_controller)"
+
+  if [ -n "${controller:-}" ]; then
+    doctor_ok "external-controller configured: $controller"
+  else
+    doctor_warn "external-controller not found in runtime config, fallback assumed: 127.0.0.1:9090"
+    warned=1
+  fi
+
+  if [ -n "${dashboard_url:-}" ]; then
+    doctor_ok "dashboard url: $dashboard_url"
+  else
+    doctor_warn "dashboard url could not be derived"
+    warned=1
+  fi
+
+  # 6. 检查 HTTP 代理端口
+  http_port="$(http_port_from_config)"
+  if check_port_listening "$http_port"; then
+    doctor_ok "proxy port is listening: $http_port"
+  else
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      doctor_warn "cannot verify proxy port (ss/netstat not available)"
+      warned=1
+    else
+      if [ "$running" = "yes" ]; then
+        doctor_err "proxy port is not listening: $http_port"
+        failed=1
+      else
+        doctor_warn "proxy port is not listening: $http_port"
+        warned=1
+      fi
+    fi
+  fi
+
+  # 7. 检查 dashboard 端口
+  if check_port_listening "$dashboard_port"; then
+    doctor_ok "dashboard port is listening: $dashboard_port"
+  else
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      doctor_warn "cannot verify dashboard port (ss/netstat not available)"
+      warned=1
+    else
+      if [ "$running" = "yes" ]; then
+        doctor_err "dashboard port is not listening: $dashboard_port"
+        failed=1
+      else
+        doctor_warn "dashboard port is not listening: $dashboard_port"
+        warned=1
+      fi
+    fi
+  fi
+
+  # 8. 检查 dashboard HTTP 可访问性
+  if [ -n "${dashboard_url:-}" ]; then
+    if check_dashboard_http "$dashboard_url"; then
+      doctor_ok "dashboard http reachable"
+    else
+      rc=$?
+      if [ "$rc" -eq 2 ]; then
+        doctor_warn "cannot verify dashboard http (curl/wget not available)"
+        warned=1
+      else
+        doctor_warn "dashboard http not reachable: $dashboard_url"
+        warned=1
+      fi
+    fi
+  fi
+
+  # 9. 检查 secret
+  secret="$(read_runtime_config_value "secret" || true)"
+  if [ -n "${secret:-}" ]; then
+    doctor_ok "secret exists in runtime config"
+  else
+    doctor_warn "secret missing in runtime config"
+    warned=1
+  fi
+
+  # 10. 检查 clashctl 安装位置（可选）
+  if command_exists clashctl; then
+    doctor_ok "clashctl command available: $(command -v clashctl)"
+  else
+    doctor_warn "clashctl command not found in PATH"
+    warned=1
+  fi
+
+  # 11. 检查代理快捷函数文件
+  if [ -f "$PROFILED_FILE" ]; then
+    doctor_ok "shell proxy helper exists: $PROFILED_FILE"
+  else
+    doctor_warn "shell proxy helper missing: $PROFILED_FILE"
+    warned=1
+  fi
+
+  echo
+  if [ "$failed" -ne 0 ]; then
+    doctor_err "doctor result: FAILED"
+    return 1
+  fi
+
+  if [ "$warned" -ne 0 ]; then
+    doctor_warn "doctor result: WARN"
+    return 0
+  fi
+
+  doctor_ok "doctor result: HEALTHY"
+  return 0
+}
+
+main() {
+  local from_systemd="false"
+
+  if [ "${1:-}" = "--from-systemd" ]; then
+    from_systemd="true"
+    shift
+  fi
+
+  case "${1:-}" in
+    on)
+      cmd_on
+      ;;
+    off)
+      cmd_off
+      ;;
+    start)
+      cmd_start
+      ;;
+    stop)
+      cmd_stop "$from_systemd"
+      ;;
+    restart)
+      cmd_restart
+      ;;
+    status)
+      cmd_status
+      ;;
+    update)
+      cmd_update
+      ;;
+    generate)
+      cmd_generate
+      ;;
+    mode)
+      cmd_mode
+      ;;
+    ui)
+      shift || true
+      cmd_ui "${1:-}"
+      ;;
+    secret)
+      cmd_secret
+      ;;
+    sub)
+      shift || true
+      cmd_sub "${1:-show}"
+      ;;
+    tun)
+      shift || true
+      cmd_tun "${1:-status}"
+      ;;
+    mixin)
+      shift || true
+      cmd_mixin "${1:-status}"
+      ;;
+	doctor)
+      cmd_doctor
+      ;;
+    ""|-h|--help)
+      usage
+      ;;
+    *)
+      err "未知命令: ${1:-}"
       usage
       exit 1
       ;;

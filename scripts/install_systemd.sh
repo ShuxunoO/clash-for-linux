@@ -1,35 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-#################### 基本变量 ####################
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVICE_NAME="clash-for-linux"
+UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 
-Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-Service_Name="clash-for-linux"
+SERVICE_USER="${CLASH_SERVICE_USER:-root}"
+SERVICE_GROUP="${CLASH_SERVICE_GROUP:-root}"
 
-Service_User="root"
-Service_Group="root"
-
-Unit_Path="/etc/systemd/system/${Service_Name}.service"
-Env_File="$Server_Dir/temp/clash-for-linux.sh"
-
-#################### 权限检查 ####################
+RUNTIME_DIR="$PROJECT_DIR/runtime"
+LOG_DIR="$PROJECT_DIR/logs"
+CONF_DIR="$PROJECT_DIR/conf"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo -e "[31m[ERROR] 需要 root 权限来安装 systemd 单元[0m"
+  echo "[ERROR] root required to install systemd unit" >&2
   exit 1
 fi
 
-#################### 目录初始化 ####################
+install -d -m 0755 "$RUNTIME_DIR" "$LOG_DIR" "$CONF_DIR"
 
-install -d -m 0755   "$Server_Dir/conf"   "$Server_Dir/logs"   "$Server_Dir/temp"
-
-# 预创建 env 文件，避免 systemd 因路径不存在报错
-: > "$Env_File"
-chmod 0644 "$Env_File"
-
-#################### 生成 systemd Unit ####################
-
-cat >"$Unit_Path" <<EOF
+cat >"$UNIT_PATH" <<EOF
 [Unit]
 Description=Clash for Linux (Mihomo)
 Documentation=https://github.com/wnlen/clash-for-linux
@@ -40,32 +30,24 @@ StartLimitBurst=10
 
 [Service]
 Type=simple
-User=$Service_User
-Group=$Service_Group
-WorkingDirectory=$Server_Dir
-
-# 启动环境
-Environment=SYSTEMD_MODE=true
-Environment=CLASH_ENV_FILE=$Env_File
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+WorkingDirectory=${PROJECT_DIR}
 Environment=HOME=/root
 
-# 主进程必须由 start.sh 最后一跳 exec 成 mihomo/clash
-ExecStart=/bin/bash $Server_Dir/start.sh
-ExecStop=/bin/bash $Server_Dir/shutdown.sh
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecStart=/bin/bash ${PROJECT_DIR}/scripts/run_clash.sh --foreground
+ExecStop=/bin/bash ${PROJECT_DIR}/clashctl --from-systemd stop
 
-# 常驻策略：即使上层脚本正常退出，也要由 systemd 拉回
 Restart=always
 RestartSec=5s
 
-# 停止与日志
 KillMode=mixed
 TimeoutStartSec=120
 TimeoutStopSec=30
+
 StandardOutput=journal
 StandardError=journal
 
-# 安全与文件权限
 UMask=0022
 NoNewPrivileges=false
 
@@ -73,13 +55,11 @@ NoNewPrivileges=false
 WantedBy=multi-user.target
 EOF
 
-#################### 刷新 systemd ####################
-
 systemctl daemon-reload
-systemctl enable "$Service_Name".service >/dev/null 2>&1 || true
+systemctl enable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
 
-echo -e "[32m[OK] 已生成 systemd 单元: ${Unit_Path}[0m"
-echo -e "已启用开机自启，可执行以下命令启动服务："
-echo -e "  systemctl restart ${Service_Name}.service"
-echo -e "查看状态："
-echo -e "  systemctl status ${Service_Name}.service -l --no-pager"
+echo "[OK] systemd unit installed: ${UNIT_PATH}"
+echo "start   : systemctl start ${SERVICE_NAME}.service"
+echo "stop    : systemctl stop ${SERVICE_NAME}.service"
+echo "restart : systemctl restart ${SERVICE_NAME}.service"
+echo "status  : systemctl status ${SERVICE_NAME}.service -l --no-pager"
