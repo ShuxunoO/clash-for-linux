@@ -19,6 +19,21 @@ trap 'rc=$?; echo "[ERR] rc=$rc line=$LINENO cmd=$BASH_COMMAND" >&2' ERR
 
 #################### 脚本初始化任务 ####################
 
+# 启动模式参数
+ONLY_GENERATE="${ONLY_GENERATE:-false}"
+
+for arg in "$@"; do
+  case "$arg" in
+    --only-generate)
+      ONLY_GENERATE="true"
+      ;;
+    -h|--help)
+      echo "Usage: bash start.sh [--only-generate]"
+      exit 0
+      ;;
+  esac
+done
+
 # 获取脚本工作目录绝对路径
 export Server_Dir
 Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -894,6 +909,11 @@ touch "$RUNTIME_DIR/.write_test" 2>/dev/null || {
   exit 2
 }
 rm -f "$RUNTIME_DIR/.write_test" 2>/dev/null || true
+
+if [ "$ONLY_GENERATE" = "true" ]; then
+  echo "[INFO] config generated only, skip starting clash"
+  exit 0
+fi
 
 echo -e '\n正在启动Clash服务...'
 Text5="服务启动成功！"
