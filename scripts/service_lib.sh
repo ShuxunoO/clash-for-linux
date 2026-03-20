@@ -72,7 +72,15 @@ stop_via_script() {
     fi
   fi
   rm -f "$PID_FILE"
+  if [ -f "$PROJECT_DIR/runtime/state.env" ]; then
+    if grep -q '^LAST_RUN_STATUS=' "$PROJECT_DIR/runtime/state.env" 2>/dev/null; then
+      sed -i -E "s/^LAST_RUN_STATUS=.*/LAST_RUN_STATUS=stopped/" "$PROJECT_DIR/runtime/state.env"
+    else
+      echo "LAST_RUN_STATUS=stopped" >> "$PROJECT_DIR/runtime/state.env"
+    fi
+  fi
 }
+
 
 restart_via_script() {
   stop_via_script || true

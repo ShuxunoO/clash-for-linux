@@ -12,6 +12,7 @@ mkdir -p "$RUNTIME_DIR" "$LOG_DIR"
 FOREGROUND=false
 DAEMON=false
 
+# 解析参数
 for arg in "$@"; do
   case "$arg" in
     --foreground) FOREGROUND=true ;;
@@ -23,6 +24,11 @@ for arg in "$@"; do
   esac
 done
 
+if [ "$FOREGROUND" = true ] && [ "$DAEMON" = true ]; then
+  echo "[ERROR] Cannot use both --foreground and --daemon" >&2
+  exit 2
+fi
+
 if [ ! -s "$CONFIG_FILE" ]; then
   echo "[ERROR] runtime config not found: $CONFIG_FILE" >&2
   exit 2
@@ -33,22 +39,25 @@ if grep -q '\${' "$CONFIG_FILE"; then
   exit 2
 fi
 
-# 这里先沿用你原来的 resolve_clash.sh
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/scripts/get_cpu_arch.sh"
-# shellcheck disable=SC1091
 source "$PROJECT_DIR/scripts/resolve_clash.sh"
 
 CLASH_BIN="$(resolve_clash_bin "$PROJECT_DIR" "${CpuArch:-}")"
 
+# systemd 模式
 if [ "$FOREGROUND" = true ]; then
+  write_run_state "running" "systemd"
   exec "$CLASH_BIN" -f "$CONFIG_FILE" -d "$RUNTIME_DIR"
 fi
 
+# script / daemon 模式
 if [ "$DAEMON" = true ]; then
   nohup "$CLASH_BIN" -f "$CONFIG_FILE" -d "$RUNTIME_DIR" >>"$LOG_DIR/clash.log" 2>&1 &
-  echo $! > "$PID_FILE"
-  echo "[OK] Clash started in script mode, pid=$(cat "$PID_FILE")"
+  pid=$!
+  echo "$pid" > "$PID_FILE"
+  write_run_state "running" "script" "$pid"
+  echo "[OK] Clash started in script mode, pid=$pid"
   exit 0
 fi
 
