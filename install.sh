@@ -461,6 +461,14 @@ if [ -f "$Install_Dir/clashctl" ]; then
   install -m 0755 "$Install_Dir/clashctl" /usr/local/bin/clashctl
 fi
 
+if [ -f "$Install_Dir/clashon" ]; then
+  install -m 0755 "$Install_Dir/clashon" /usr/local/bin/clashon
+fi
+
+if [ -f "$Install_Dir/clashoff" ]; then
+  install -m 0755 "$Install_Dir/clashoff" /usr/local/bin/clashoff
+fi
+
 # =========================
 # 友好收尾输出（闭环）
 # =========================
