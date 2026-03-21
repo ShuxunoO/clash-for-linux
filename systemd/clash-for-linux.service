@@ -1,19 +1,33 @@
 [Unit]
-Description=Clash for Linux
-After=network.target
+Description=Clash for Linux (Mihomo)
+Documentation=https://github.com/wnlen/clash-for-linux
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+StartLimitBurst=10
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/default/clash-for-linux
-Environment=CLASH_HOME=/opt/clash-for-linux
-ExecStart=/bin/bash -c 'exec /bin/bash "${CLASH_HOME}/start.sh"'
-ExecStop=/bin/bash -c 'exec /bin/bash "${CLASH_HOME}/shutdown.sh"'
-Restart=on-failure
-RestartSec=5
-User=clash
-Group=clash
-PIDFile=%E{CLASH_HOME}/temp/clash.pid
-Environment=CLASH_ENV_FILE=%E{CLASH_HOME}/temp/clash-for-linux.sh
+User=root
+Group=root
+WorkingDirectory=/opt/clash-for-linux
+Environment=HOME=/root
+
+ExecStart=/bin/bash /opt/clash-for-linux/clashctl start
+ExecStop=/bin/bash /opt/clash-for-linux/clashctl --from-systemd stop
+
+Restart=always
+RestartSec=5s
+
+KillMode=mixed
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+
+UMask=0022
+NoNewPrivileges=false
 
 [Install]
 WantedBy=multi-user.target

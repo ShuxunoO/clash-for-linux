@@ -10,14 +10,14 @@ SERVICE_GROUP="${CLASH_SERVICE_GROUP:-root}"
 
 RUNTIME_DIR="$PROJECT_DIR/runtime"
 LOG_DIR="$PROJECT_DIR/logs"
-CONF_DIR="$PROJECT_DIR/conf"
+CONFIG_DIR="$PROJECT_DIR/config"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "[ERROR] root required to install systemd unit" >&2
   exit 1
 fi
 
-install -d -m 0755 "$RUNTIME_DIR" "$LOG_DIR" "$CONF_DIR"
+install -d -m 0755 "$RUNTIME_DIR" "$LOG_DIR" "$CONFIG_DIR" "$CONFIG_DIR/mixin.d"
 
 cat >"$UNIT_PATH" <<EOF
 [Unit]
@@ -35,8 +35,11 @@ Group=${SERVICE_GROUP}
 WorkingDirectory=${PROJECT_DIR}
 Environment=HOME=/root
 
-ExecStart=/bin/bash ${PROJECT_DIR}/scripts/run_clash.sh --foreground
-ExecStop=/bin/bash ${PROJECT_DIR}/clashctl --from-systemd stop
+ExecStart=${PROJECT_DIR}/clashctl start
+ExecStop=${PROJECT_DIR}/clashctl --from-systemd stop
+ExecReload=${PROJECT_DIR}/clashctl restart
+
+PIDFile=${PROJECT_DIR}/runtime/clash.pid
 
 Restart=always
 RestartSec=5s
@@ -62,4 +65,5 @@ echo "[OK] systemd unit installed: ${UNIT_PATH}"
 echo "start   : systemctl start ${SERVICE_NAME}.service"
 echo "stop    : systemctl stop ${SERVICE_NAME}.service"
 echo "restart : systemctl restart ${SERVICE_NAME}.service"
+echo "reload  : systemctl reload ${SERVICE_NAME}.service"
 echo "status  : systemctl status ${SERVICE_NAME}.service -l --no-pager"

@@ -48,7 +48,7 @@
 ```
 git clone --branch master --depth 1 https://github.com/wnlen/clash-for-linux.git
 cd clash-for-linux
-sudo bash install.sh
+bash install.sh
 ```
 
 安装脚本将自动完成：
@@ -68,13 +68,13 @@ sudo bash install.sh
 编辑 `.env` 文件，设置订阅地址：
 
 ```
-sudo bash -c 'echo "CLASH_URL=<订阅地址>" > /root/clash-for-linux/.env'
+bash -c 'echo "CLASH_URL=<订阅地址>" > /root/clash-for-linux/.env'
 ```
 
 配置完成后，**重启服务使配置生效**：
 
 ```
-sudo systemctl restart clash-for-linux.service
+systemctl restart clash-for-linux.service
 ```
 
 说明：
@@ -91,7 +91,7 @@ sudo systemctl restart clash-for-linux.service
 true = 启动时检查订阅并重新下载/转换配置
 false = 禁用自动更新，直接使用本地已有 config.yaml
 ```
-sudo bash -c 'echo "CLASH_AUTO_UPDATE=false" > /opt/clash-for-linux/.env'
+bash -c 'echo "CLASH_AUTO_UPDATE=false" > /opt/clash-for-linux/.env'
 ```
 ------
 
@@ -122,19 +122,19 @@ http://127.0.0.1:9090/ui
 编辑 `.env` 文件，设置公网访问（对外端口不用改，改了机器人也能扫到，密钥设置长点就行）：
 
 ```
-sudo bash -c 'echo "EXTERNAL_CONTROLLER=0.0.0.0:9090" > /opt/clash-for-linux/.env'
+bash -c 'echo "EXTERNAL_CONTROLLER=0.0.0.0:9090" > /opt/clash-for-linux/.env'
 ```
 
 配置完成后，**重启服务使配置生效**：
 
 ```
-sudo systemctl restart clash-for-linux.service
+systemctl restart clash-for-linux.service
 ```
 
 密钥留空时：脚本可自动生成随机值
 获取密钥命令：
 ```
-sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' "/opt/clash-for-linux/conf/config.yaml" | head -n 1
+sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' "/opt/clash-for-linux/runtime/config.yaml" | head -n 1
 ```
 
 
@@ -190,7 +190,7 @@ clashctl sub log
 ### 修改 Clash 配置并重启
 
 ```
-vim conf/config.yaml
+vim runtime/config.yaml
 clashctl restart
 ```
 
@@ -214,12 +214,12 @@ clashctl sub update personal
 
 用于追加或覆盖 Clash 配置。
 
-- 默认读取：`conf/mixin.d/*.yaml`（按文件名排序）
+- 默认读取：`config/mixin.d/*.yaml`（按文件名排序）
 - 也可在 `.env` 中指定：
 
 ```
-export CLASH_MIXIN_DIR='conf/mixin.d'
-export CLASH_MIXIN_PATHS='conf/mixin.d/base.yaml,conf/mixin.d/rules.yaml'
+export CLASH_MIXIN_DIR='config/mixin.d'
+export CLASH_MIXIN_PATHS='config/mixin.d/base.yaml,config/mixin.d/rules.yaml'
 ```
 
 ------
@@ -267,7 +267,7 @@ env | grep -E 'http_proxy|https_proxy'
 ## 🧹 卸载
 
 ```
-sudo bash uninstall.sh
+bash uninstall.sh
 ```
 
 ------
@@ -314,25 +314,25 @@ export SUBCONVERTER_DOWNLOAD_URL_TEMPLATE='https://example.com/subconverter_{arc
 1. 开启 IP 转发
 
 ```bash
-echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
+echo "net.ipv4.ip_forward = 1" | tee -a /etc/sysctl.conf
+sysctl -p
 ```
 
 2.配置iptables
 ```bash
 # 先清空旧规则
-sudo iptables -t nat -F
+iptables -t nat -F
 
 # 允许本机访问代理端口
-sudo iptables -t nat -A OUTPUT -p tcp --dport 7890 -j RETURN
-sudo iptables -t nat -A OUTPUT -p tcp --dport 7891 -j RETURN
-sudo iptables -t nat -A OUTPUT -p tcp --dport 7892 -j RETURN
+iptables -t nat -A OUTPUT -p tcp --dport 7890 -j RETURN
+iptables -t nat -A OUTPUT -p tcp --dport 7891 -j RETURN
+iptables -t nat -A OUTPUT -p tcp --dport 7892 -j RETURN
 
 # 让所有 TCP 流量通过 7892 代理
-sudo iptables -t nat -A PREROUTING -p tcp -j REDIRECT --to-ports 7892
+iptables -t nat -A PREROUTING -p tcp -j REDIRECT --to-ports 7892
 
 # 保存规则
-sudo iptables-save | sudo tee /etc/iptables.rules
+iptables-save | tee /etc/iptables.rules
 ```
 
 3. 让 iptables 规则开机生效
@@ -345,7 +345,7 @@ exit 0
 ```
 
 ```bash
-sudo chmod +x /etc/rc.local
+chmod +x /etc/rc.local
 ```
 
 

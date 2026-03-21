@@ -25,14 +25,14 @@ Mixin 用于在 **不直接修改主配置文件** 的情况下，
 
 ### Default Behavior
 
-- 默认读取目录：`conf/mixin.d/`
+- 默认读取目录：`config/mixin.d/`
 - 按文件名排序后依次合并
 - 后加载的文件会覆盖前面的配置
 
 ### Example
 
 ```yaml
-# conf/mixin.d/10-rules.yaml
+# config/mixin.d/10-rules.yaml
 rules:
   - DOMAIN-SUFFIX,example.com,DIRECT
 ```
@@ -170,7 +170,7 @@ clash-for-linux 以 **安全默认配置** 为原则：
 
 ### Service Keeps Restarting
 
-- 检查 `conf/config.yaml` 是否存在语法错误
+- 检查 `runtime/config.yaml` 是否存在语法错误
 - 查看 systemd 日志：
 
 ```

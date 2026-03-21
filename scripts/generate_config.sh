@@ -12,6 +12,7 @@ STATE_FILE="$RUNTIME_DIR/state.env"
 TMP_DOWNLOAD="$RUNTIME_DIR/subscription.raw.yaml"
 TMP_NORMALIZED="$RUNTIME_DIR/subscription.normalized.yaml"
 TMP_PROXY_FRAGMENT="$RUNTIME_DIR/proxy.fragment.yaml"
+TMP_CONFIG="$RUNTIME_DIR/config.yaml.tmp"
 
 mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
@@ -64,6 +65,15 @@ generate_secret() {
     return 0
   fi
 
+  if [ -s "$RUNTIME_CONFIG" ]; then
+    local old_secret
+    old_secret="$(sed -nE 's/^[[:space:]]*secret:[[:space:]]*"?([^"#]+)"?.*$/\1/p' "$RUNTIME_CONFIG" | head -n 1)"
+    if [ -n "${old_secret:-}" ]; then
+      echo "$old_secret"
+      return 0
+    fi
+  fi
+
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 16
   else
@@ -103,9 +113,11 @@ apply_controller_to_config() {
 
     rm -rf "$ui_dir"
     mkdir -p "$ui_dir"
-    cp -a "$PROJECT_DIR/dashboard/public/." "$ui_dir/"
 
-    upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
+    if [ -d "$PROJECT_DIR/dashboard/public" ]; then
+      cp -a "$PROJECT_DIR/dashboard/public/." "$ui_dir/"
+      upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
+    fi
   fi
 }
 
@@ -121,11 +133,32 @@ download_subscription() {
 
 is_complete_clash_config() {
   local file="$1"
-  grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:)' "$file"
+  grep -qE '^[[:space:]]*(proxies:|proxy-providers:|mixed-port:|port:)' "$file"
 }
 
 cleanup_tmp_files() {
-  rm -f "$TMP_NORMALIZED" "$TMP_PROXY_FRAGMENT"
+  rm -f "$TMP_PROXY_FRAGMENT" "$TMP_CONFIG"
+}
+
+build_fragment_config() {
+  local template_file="$1"
+  local target_file="$2"
+
+  sed -n '/^proxies:/,$p' "$TMP_NORMALIZED" > "$TMP_PROXY_FRAGMENT"
+
+  cat "$template_file" > "$target_file"
+  cat "$TMP_PROXY_FRAGMENT" >> "$target_file"
+
+  sed -i "s/CLASH_HTTP_PORT_PLACEHOLDER/${CLASH_HTTP_PORT}/g" "$target_file"
+  sed -i "s/CLASH_SOCKS_PORT_PLACEHOLDER/${CLASH_SOCKS_PORT}/g" "$target_file"
+  sed -i "s/CLASH_REDIR_PORT_PLACEHOLDER/${CLASH_REDIR_PORT}/g" "$target_file"
+  sed -i "s/CLASH_LISTEN_IP_PLACEHOLDER/${CLASH_LISTEN_IP}/g" "$target_file"
+  sed -i "s/CLASH_ALLOW_LAN_PLACEHOLDER/${CLASH_ALLOW_LAN}/g" "$target_file"
+}
+
+finalize_config() {
+  local file="$1"
+  mv -f "$file" "$RUNTIME_CONFIG"
 }
 
 main() {
@@ -156,9 +189,10 @@ main() {
   cp -f "$TMP_DOWNLOAD" "$TMP_NORMALIZED"
 
   if is_complete_clash_config "$TMP_NORMALIZED"; then
-    cp -f "$TMP_NORMALIZED" "$RUNTIME_CONFIG"
-    apply_controller_to_config "$RUNTIME_CONFIG"
-    apply_secret_to_config "$RUNTIME_CONFIG"
+    cp -f "$TMP_NORMALIZED" "$TMP_CONFIG"
+    apply_controller_to_config "$TMP_CONFIG"
+    apply_secret_to_config "$TMP_CONFIG"
+    finalize_config "$TMP_CONFIG"
     write_state "success" "subscription_full" "subscription_full"
     cleanup_tmp_files
     exit 0
@@ -171,22 +205,14 @@ main() {
     exit 1
   fi
 
-  sed -n '/^proxies:/,$p' "$TMP_NORMALIZED" > "$TMP_PROXY_FRAGMENT"
+  build_fragment_config "$template_file" "$TMP_CONFIG"
+  apply_controller_to_config "$TMP_CONFIG"
+  apply_secret_to_config "$TMP_CONFIG"
 
-  cat "$template_file" > "$RUNTIME_CONFIG"
-  cat "$TMP_PROXY_FRAGMENT" >> "$RUNTIME_CONFIG"
-
-  sed -i "s/CLASH_HTTP_PORT_PLACEHOLDER/${CLASH_HTTP_PORT}/g" "$RUNTIME_CONFIG"
-  sed -i "s/CLASH_SOCKS_PORT_PLACEHOLDER/${CLASH_SOCKS_PORT}/g" "$RUNTIME_CONFIG"
-  sed -i "s/CLASH_REDIR_PORT_PLACEHOLDER/${CLASH_REDIR_PORT}/g" "$RUNTIME_CONFIG"
-  sed -i "s/CLASH_LISTEN_IP_PLACEHOLDER/${CLASH_LISTEN_IP}/g" "$RUNTIME_CONFIG"
-  sed -i "s/CLASH_ALLOW_LAN_PLACEHOLDER/${CLASH_ALLOW_LAN}/g" "$RUNTIME_CONFIG"
-
-  apply_controller_to_config "$RUNTIME_CONFIG"
-  apply_secret_to_config "$RUNTIME_CONFIG"
-
+  finalize_config "$TMP_CONFIG"
   write_state "success" "subscription_fragment_merged" "subscription_fragment"
   cleanup_tmp_files
 }
 
+trap cleanup_tmp_files EXIT
 main "$@"

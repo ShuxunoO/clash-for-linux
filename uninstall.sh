@@ -82,7 +82,7 @@ fi
 # 2) stop process by pid file from all likely dirs
 for d in "/root/clash-for-linux" "/opt/clash-for-linux" "${INSTALL_DIR:-}"; do
   [ -n "$d" ] || continue
-  PID_FILE="$d/temp/clash.pid"
+  PID_FILE="$d/runtime/clash.pid"
   if [ -f "$PID_FILE" ]; then
     PID="$(cat "$PID_FILE" 2>/dev/null || true)"
     if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then

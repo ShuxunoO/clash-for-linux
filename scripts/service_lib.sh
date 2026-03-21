@@ -9,6 +9,9 @@ SERVICE_NAME="clash-for-linux.service"
 
 mkdir -p "$RUNTIME_DIR"
 
+# =========================
+# 基础能力
+# =========================
 has_systemd() {
   command -v systemctl >/dev/null 2>&1
 }
@@ -19,17 +22,39 @@ service_unit_exists() {
 }
 
 read_pid() {
-  [ -f "$PID_FILE" ] || return 1
-  cat "$PID_FILE"
+  [ -s "$PID_FILE" ] || return 1
+  tr -d '[:space:]' < "$PID_FILE"
+}
+
+is_pid_running() {
+  local pid="$1"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
 is_script_running() {
   local pid
   pid="$(read_pid 2>/dev/null || true)"
-  [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null
+  is_pid_running "$pid"
 }
 
+# =========================
+# 清理僵尸 PID（关键）
+# =========================
+cleanup_dead_pid() {
+  local pid
+  pid="$(read_pid 2>/dev/null || true)"
+
+  if [ -n "${pid:-}" ] && ! is_pid_running "$pid"; then
+    rm -f "$PID_FILE"
+  fi
+}
+
+# =========================
+# 模式检测（统一）
+# =========================
 detect_mode() {
+  cleanup_dead_pid
+
   if service_unit_exists && systemctl is-active --quiet "$SERVICE_NAME"; then
     echo "systemd"
   elif is_script_running; then
@@ -41,59 +66,65 @@ detect_mode() {
   fi
 }
 
-write_run_state() {
-  local status="$1"
-  local mode="${2:-unknown}"
-  local pid="${3:-}"
+# =========================
+# state 写入（唯一实现）
+# =========================
+write_state_kv() {
+  local key="$1"
+  local value="$2"
 
+  mkdir -p "$RUNTIME_DIR"
   touch "$STATE_FILE"
 
-  if grep -q '^LAST_RUN_STATUS=' "$STATE_FILE" 2>/dev/null; then
-    sed -i -E "s/^LAST_RUN_STATUS=.*/LAST_RUN_STATUS=${status}/" "$STATE_FILE"
+  if grep -q "^${key}=" "$STATE_FILE" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$STATE_FILE"
   else
-    echo "LAST_RUN_STATUS=${status}" >> "$STATE_FILE"
-  fi
-
-  if grep -q '^LAST_RUN_MODE=' "$STATE_FILE" 2>/dev/null; then
-    sed -i -E "s/^LAST_RUN_MODE=.*/LAST_RUN_MODE=${mode}/" "$STATE_FILE"
-  else
-    echo "LAST_RUN_MODE=${mode}" >> "$STATE_FILE"
-  fi
-
-  if grep -q '^LAST_RUN_AT=' "$STATE_FILE" 2>/dev/null; then
-    sed -i -E "s/^LAST_RUN_AT=.*/LAST_RUN_AT=$(date -Iseconds)/" "$STATE_FILE"
-  else
-    echo "LAST_RUN_AT=$(date -Iseconds)" >> "$STATE_FILE"
-  fi
-
-  if [ -n "$pid" ]; then
-    if grep -q '^LAST_RUN_PID=' "$STATE_FILE" 2>/dev/null; then
-      sed -i -E "s/^LAST_RUN_PID=.*/LAST_RUN_PID=${pid}/" "$STATE_FILE"
-    else
-      echo "LAST_RUN_PID=${pid}" >> "$STATE_FILE"
-    fi
+    echo "${key}=${value}" >> "$STATE_FILE"
   fi
 }
 
+write_run_state() {
+  local status="${1:-unknown}"
+  local mode="${2:-unknown}"
+  local pid="${3:-}"
+
+  write_state_kv "LAST_RUN_STATUS" "$status"
+  write_state_kv "LAST_RUN_MODE" "$mode"
+  write_state_kv "LAST_RUN_AT" "$(date -Iseconds)"
+
+  if [ -n "$pid" ]; then
+    write_state_kv "LAST_RUN_PID" "$pid"
+  fi
+}
+
+# =========================
+# systemd 模式
+# =========================
 start_via_systemd() {
   systemctl start "$SERVICE_NAME"
 }
 
 stop_via_systemd() {
-  systemctl stop "$SERVICE_NAME"
+  systemctl stop "$SERVICE_NAME" || true
+  cleanup_dead_pid
   write_run_state "stopped" "systemd"
-  rm -f "$PID_FILE"
 }
 
 restart_via_systemd() {
   systemctl restart "$SERVICE_NAME"
 }
 
+# =========================
+# script 模式
+# =========================
 start_via_script() {
+  cleanup_dead_pid
+
   if is_script_running; then
-    echo "[INFO] clash already running (script mode)"
+    echo "[INFO] clash already running (script)"
     return 0
   fi
+
   "$PROJECT_DIR/scripts/run_clash.sh" --daemon
 }
 
@@ -101,11 +132,19 @@ stop_via_script() {
   local pid
   pid="$(read_pid 2>/dev/null || true)"
 
-  if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+  if [ -n "${pid:-}" ] && is_pid_running "$pid"; then
     echo "[INFO] stopping clash pid=$pid"
-    kill "$pid"
-    sleep 1
-    if kill -0 "$pid" 2>/dev/null; then
+
+    kill "$pid" 2>/dev/null || true
+
+    for _ in 1 2 3 4 5; do
+      if ! is_pid_running "$pid"; then
+        break
+      fi
+      sleep 1
+    done
+
+    if is_pid_running "$pid"; then
       kill -9 "$pid" 2>/dev/null || true
     fi
   fi

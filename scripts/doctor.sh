@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RUNTIME_DIR="$PROJECT_DIR/runtime"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "=== Clash Doctor ==="
-
-if [ -f "$RUNTIME_DIR/config.yaml" ]; then
-  echo "[OK] config exists"
-else
-  echo "[ERROR] config missing"
-fi
-
-if command -v systemctl >/dev/null 2>&1; then
-  if systemctl is-active --quiet clash-for-linux.service; then
-    echo "[OK] service running"
-  else
-    echo "[WARN] service not running"
-  fi
-fi
+exec "$PROJECT_DIR/clashctl" doctor "$@"
