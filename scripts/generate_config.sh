@@ -104,12 +104,10 @@ apply_secret_to_config() {
 
 apply_controller_to_config() {
   local file="$1"
+  local ui_dir="$RUNTIME_DIR/ui"
 
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
-
-    local ui_dir
-    ui_dir="$RUNTIME_DIR/ui"
 
     rm -rf "$ui_dir"
     mkdir -p "$ui_dir"
@@ -117,7 +115,12 @@ apply_controller_to_config() {
     if [ -d "$PROJECT_DIR/dashboard/public" ]; then
       cp -a "$PROJECT_DIR/dashboard/public/." "$ui_dir/"
       upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
+    else
+      remove_yaml_key_local "$file" "external-ui"
     fi
+  else
+    remove_yaml_key_local "$file" "external-controller"
+    remove_yaml_key_local "$file" "external-ui"
   fi
 }
 
@@ -159,6 +162,14 @@ build_fragment_config() {
 finalize_config() {
   local file="$1"
   mv -f "$file" "$RUNTIME_CONFIG"
+}
+
+remove_yaml_key_local() {
+  local file="$1"
+  local key="$2"
+
+  [ -f "$file" ] || return 0
+  sed -i -E "/^[[:space:]]*${key}:/d" "$file"
 }
 
 main() {
