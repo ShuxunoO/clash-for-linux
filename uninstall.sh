@@ -16,8 +16,8 @@ for arg in "$@"; do
       PURGE=true
       ;;
     *)
-      echo "[ERROR] Unknown arg: $arg" >&2
-      echo "Usage: uninstall.sh [--purge]" >&2
+      echo "[ERROR] 未知参数: $arg" >&2
+      echo "用法: uninstall.sh [--purge]" >&2
       exit 2
       ;;
   esac
@@ -29,11 +29,11 @@ warn()  { log "\033[33m[WARN]\033[0m $*"; }
 err()   { log "\033[31m[ERROR]\033[0m $*"; }
 
 if [ "$(id -u)" -ne 0 ]; then
-  err "需要 root 权限执行卸载"
+  err "卸载需要 root 权限"
   exit 1
 fi
 
-echo "[INFO] uninstalling clash-for-linux..."
+echo "[INFO] 正在卸载 clash-for-linux..."
 
 # =========================
 # 停止服务
@@ -52,12 +52,12 @@ if [ -f "$PID_FILE" ]; then
   PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 
   if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then
-    echo "[INFO] stopping pid=$PID"
+    echo "[INFO] 正在停止进程 pid=$PID"
     kill "$PID" 2>/dev/null || true
     sleep 1
 
     if kill -0 "$PID" 2>/dev/null; then
-      echo "[WARN] force kill -9 $PID"
+      echo "[WARN] 强制结束进程 -9 $PID"
       kill -9 "$PID" 2>/dev/null || true
     fi
   fi
@@ -70,7 +70,7 @@ fi
 # =========================
 if [ -f "$UNIT_PATH" ]; then
   rm -f "$UNIT_PATH"
-  ok "removed systemd unit"
+  ok "已移除 systemd 服务"
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -84,7 +84,7 @@ fi
 rm -f "$CLASHCTL_LINK" >/dev/null 2>&1 || true
 rm -f "$PROFILED_FILE" >/dev/null 2>&1 || true
 
-ok "removed command + env"
+ok "已清理命令入口及环境变量"
 
 # =========================
 # 删除安装目录
@@ -92,14 +92,14 @@ ok "removed command + env"
 if [ "$PURGE" = true ]; then
   if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR"
-    ok "removed install dir: $INSTALL_DIR"
+    ok "已删除安装目录: $INSTALL_DIR"
   else
-    warn "install dir not found: $INSTALL_DIR"
+    warn "未找到安装目录: $INSTALL_DIR"
   fi
 else
-  warn "install dir preserved: $INSTALL_DIR"
-  echo "run with --purge to remove it"
+  warn "安装目录已保留: $INSTALL_DIR"
+  echo "如需彻底删除，请执行：bash uninstall.sh --purge"
 fi
 
 echo
-ok "uninstall complete"
+ok "卸载完成"

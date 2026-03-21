@@ -25,7 +25,7 @@ is_port_in_use() {
 	fi
 
 	if [ "$PORT_CHECK_WARNED" -eq 0 ]; then
-		echo "[WARN] no port check tool found (ss/netstat/lsof)" >&2
+		echo "[WARN] 未检测到端口检查工具（ss/netstat/lsof）" >&2
 		PORT_CHECK_WARNED=1
 	fi
 
@@ -66,38 +66,38 @@ find_available_port() {
 # 解析端口值（核心函数）
 # =========================
 resolve_port_value() {
-	local name="$1"
-	local value="$2"
-	local resolved
+  local name="$1"
+  local value="$2"
+  local resolved
 
-	# auto / 空
-	if [ -z "$value" ] || [ "$value" = "auto" ]; then
-		resolved=$(find_available_port) || {
-			echo "[ERROR] ${name} failed to allocate port" >&2
-			return 1
-		}
-		echo "[WARN] ${name} auto assigned: ${resolved}" >&2
-		echo "$resolved"
-		return 0
-	fi
+  # auto / 空
+  if [ -z "$value" ] || [ "$value" = "auto" ]; then
+    resolved=$(find_available_port) || {
+      echo "[ERROR] ${name} 端口分配失败" >&2
+      return 1
+    }
+    echo "[WARN] ${name} 自动分配端口: ${resolved}" >&2
+    echo "$resolved"
+    return 0
+  fi
 
-	# 非数字
-	if ! [[ "$value" =~ ^[0-9]+$ ]]; then
-		echo "[ERROR] invalid port: $value" >&2
-		return 1
-	fi
+  # 非数字
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] 非法端口: $value" >&2
+    return 1
+  fi
 
-	# 被占用 → 自动替换
-	if is_port_in_use "$value"; then
-		resolved=$(find_available_port)
-		if [ -n "$resolved" ]; then
-			echo "[WARN] ${name} port ${value} in use, switched to ${resolved}" >&2
-			echo "$resolved"
-			return 0
-		fi
-	fi
+  # 被占用 → 自动替换
+  if is_port_in_use "$value"; then
+    resolved=$(find_available_port)
+    if [ -n "$resolved" ]; then
+      echo "[WARN] ${name} 端口 ${value} 已被占用，已切换为 ${resolved}" >&2
+      echo "$resolved"
+      return 0
+    fi
+  fi
 
-	echo "$value"
+  echo "$value"
 }
 
 # =========================

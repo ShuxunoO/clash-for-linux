@@ -13,7 +13,7 @@ LOG_DIR="$PROJECT_DIR/logs"
 CONFIG_DIR="$PROJECT_DIR/config"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "[ERROR] root required to install systemd unit" >&2
+  echo "[ERROR] 安装 systemd 服务需要 root 权限" >&2
   exit 1
 fi
 

@@ -38,7 +38,7 @@ resolve_project_dir() {
     fi
   done
 
-  echo "[ERROR] Unable to locate project directory" >&2
+  echo "[ERROR] 无法定位项目目录" >&2
   exit 1
 }
 
@@ -62,10 +62,10 @@ err()   { log "\033[31m[ERROR]\033[0m $*"; }
 
 usage() {
   cat <<'EOF'
-Usage:
-  clashctl COMMAND [OPTIONS]
+用法:
+  clashctl 命令 [选项]
 
-Commands:
+指令:
   on                     开启当前终端代理
   off                    关闭当前终端代理
   start                  启动 Clash
@@ -82,10 +82,10 @@ Commands:
   tun status|on|off      查看/启用/关闭 Tun
   mixin status|on|off    查看/启用/关闭 Mixin
 
-Advanced Commands:
+高级命令:
   generate               生成配置（调试用，不会启动服务）
 
-Options:
+选项:
   --from-systemd         内部使用，避免 stop 递归调用 systemctl
   -h, --help             显示帮助信息
 EOF
@@ -132,7 +132,7 @@ write_env_bool() {
   if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE"; then
     sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}=\"${value}\"|g" "$ENV_FILE"
   else
-    echo "export ${key}=\"${value}\"" >> "$ENV_FILE"
+    echo "已写入环境变量 ${key}=\"${value}\"" >> "$ENV_FILE"
   fi
 }
 
@@ -240,11 +240,11 @@ cmd_start() {
   case "$mode" in
     systemd|systemd-installed)
       start_via_systemd
-      ok "Clash started via systemd"
+      ok "已通过 systemd 启动 Clash"
       ;;
     script|none)
       start_via_script
-      ok "Clash started via script mode"
+      ok "已通过脚本模式启动 Clash"
       ;;
     *)
       err "未知模式: $mode"
@@ -261,21 +261,21 @@ cmd_stop() {
   case "$mode" in
     systemd)
       if [ "$from_systemd" = "true" ]; then
-        ok "Stop requested from systemd, skip recursive systemctl stop"
+        ok "来自 systemd 的停止请求，已跳过重复停止操作"
         return 0
       fi
       stop_via_systemd
-      ok "Clash stopped via systemd"
+      ok "已通过 systemd 停止 Clash"
       ;;
     systemd-installed)
-      info "systemd service installed but not running"
+      info "systemd 服务已安装但未运行"
       ;;
     script)
       stop_via_script
-      ok "Clash stopped via script mode"
+      ok "已通过脚本模式停止 Clash"
       ;;
     none)
-      info "Clash is not running"
+      info "Clash 未运行"
       ;;
     *)
       err "未知模式: $mode"
@@ -312,7 +312,7 @@ cmd_update() {
   fi
 
   if [ "$pull_ok" -eq 1 ]; then
-    echo "[INFO] pulling latest code from ${remote_name}/${branch} ..."
+    echo "[INFO] 正在从 ${remote_name}/${branch} 拉取最新代码 ..."
     if ! git -C "$PROJECT_DIR" pull --ff-only "$remote_name" "$branch"; then
       echo "[WARN] git pull 失败，自动切换到强制更新模式"
       pull_ok=0
@@ -320,13 +320,13 @@ cmd_update() {
   fi
 
   if [ "$pull_ok" -eq 0 ]; then
-    echo "[INFO] fetching latest code from ${remote_name}/${branch} ..."
+    echo "[INFO] 正在获取 ${remote_name}/${branch} 最新代码 ..."
     if ! git -C "$PROJECT_DIR" fetch "$remote_name" "$branch"; then
       err "git fetch 失败"
       exit 1
     fi
 
-    echo "[WARN] resetting local code to ${remote_name}/${branch}"
+    echo "[WARN] 正在重置本地代码到 ${remote_name}/${branch}"
     if ! git -C "$PROJECT_DIR" reset --hard "${remote_name}/${branch}"; then
       err "git reset --hard 失败"
       exit 1
@@ -339,32 +339,32 @@ cmd_update() {
   fi
 
   # 修复脚本权限，避免 203/EXEC
-  echo "[INFO] fixing executable permissions ..."
+  echo "[INFO] 修复执行权限中..."
   chmod +x "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
   chmod +x "$PROJECT_DIR"/bin/* 2>/dev/null || true
   sed -i 's/\r$//' "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
 
   # 先停服务，避免 generate 时误判端口占用导致漂移
-  echo "[INFO] stopping service before regenerate ..."
+  echo "[INFO] 停止服务（准备重新生成配置）..."
   if has_systemd; then
     systemctl stop clash-for-linux.service 2>/dev/null || true
     sleep 1
   fi
 
-  echo "[INFO] regenerating config ..."
+  echo "[INFO] 生成配置中..."
   if ! bash "$PROJECT_DIR/scripts/generate_config.sh"; then
     err "配置生成失败"
     exit 1
   fi 
 
-  echo "[INFO] starting service ..."
+  echo "[INFO] 启动服务中..."
   if has_systemd; then
     if ! systemctl start clash-for-linux.service; then
       err "systemd 启动失败"
       exit 1
     fi
 
-    echo "[INFO] waiting for service to be active ..."
+    echo "[INFO] 等待服务就绪..."
     if wait_for_systemd_active; then
       ok "更新完成"
       cmd_status
@@ -407,11 +407,11 @@ cmd_update_force() {
   mkdir -p "$PROJECT_DIR/runtime"
 
   if [ -f "$env_file" ]; then
-    echo "[INFO] backing up local env overrides ..."
+    echo "[INFO] 正在备份本地环境变量覆盖项 ..."
     backup_local_env_overrides "$env_file" "$backup_file"
   fi
 
-  echo "[WARN] force update: local code changes will be discarded"
+  echo "[WARN] 强制更新：本地代码修改将被覆盖"
   git -C "$PROJECT_DIR" fetch "$remote_name" "$branch" || {
     err "git fetch 失败"
     exit 1
@@ -423,17 +423,17 @@ cmd_update_force() {
   }
 
   if [ -f "$env_file" ] && [ -f "$backup_file" ]; then
-    echo "[INFO] restoring local env overrides ..."
+    echo "[INFO] 正在恢复本地环境变量 ..."
     restore_local_env_overrides "$env_file" "$backup_file"
   fi
 
-  echo "[INFO] regenerating config ..."
+  echo "[INFO] 正在重新生成配置 ..."
   if ! bash "$PROJECT_DIR/scripts/generate_config.sh"; then
     err "配置生成失败"
     exit 1
   fi
 
-  echo "[INFO] restarting service ..."
+  echo "[INFO] 正在重启服务 ..."
   if has_systemd; then
     systemctl restart clash-for-linux.service || {
       err "systemd 重启失败"
@@ -523,29 +523,29 @@ wait_for_systemd_active() {
 }
 
 cmd_restart() {
-  echo "[INFO] stopping Clash ..."
+  echo "[INFO] 正在停止 Clash ..."
   cmd_stop "${1:-false}" || true
   sleep 1
 
-  echo "[INFO] regenerating config ..."
+  echo "[INFO] 正在重新生成配置 ..."
   if ! cmd_generate; then
     return 1
   fi
 
-  echo "[INFO] starting Clash ..."
+  echo "[INFO] 正在启动 Clash ..."
   if ! cmd_start; then
     err "启动失败"
     return 1
   fi
 
   if has_systemd; then
-    echo "[INFO] waiting for service to be active ..."
+    echo "[INFO] 正在等待服务启动完成 ..."
     if wait_for_systemd_active; then
       ok "重启完成"
       return 0
     fi
 
-    err "服务启动未就绪"
+    err "服务未就绪"
     systemctl status "$SERVICE_NAME" -l --no-pager || true
     return 1
   fi
@@ -589,14 +589,14 @@ cmd_secret() {
   local secret
 
   if [ ! -s "$RUNTIME_CONFIG" ]; then
-    err "runtime config not found: $RUNTIME_CONFIG"
-    echo "Please run install.sh or clashctl generate" >&2
+    err "未找到运行时配置文件: $RUNTIME_CONFIG"
+    echo "请先执行 install.sh 或 clashctl generate" >&2
     exit 1
   fi
 
   secret="$(read_runtime_config_value "secret" || true)"
   if [ -z "${secret:-}" ]; then
-    err "secret not found in $RUNTIME_CONFIG"
+    err "未找到 secret 在配置: $RUNTIME_CONFIG"
     exit 1
   fi
 
@@ -746,77 +746,77 @@ cmd_status() {
     secret_exists="yes"
   fi
 
-  echo "=== Clash Status ==="
-  echo "Project      : $PROJECT_DIR"
-  echo "Mode         : $mode"
-  echo "Running      : $running"
-  echo "Config       : $RUNTIME_CONFIG"
+  echo "=== Clash 状态 ==="
+  echo "项目路径      : $PROJECT_DIR"
+  echo "运行模式      : $mode"
+  echo "运行状态      : $running"
+  echo "配置文件      : $RUNTIME_CONFIG"
 
   if [ -f "$RUNTIME_CONFIG" ]; then
-    echo "ConfigExists : yes"
+    echo "配置存在      : 是"
   else
-    echo "ConfigExists : no"
+    echo "配置存在      : 否"
   fi
 
   if [ -f "$STATE_FILE" ]; then
-    echo "StateFile    : $STATE_FILE"
+    echo "状态文件      : $STATE_FILE"
   else
-    echo "StateFile    : missing"
+    echo "状态文件      : 缺失"
   fi
 
   case "$mode" in
     systemd|systemd-installed)
-      echo "Service      : installed"
-      echo "Active       : ${service_active:-unknown}"
-      echo "Enabled      : ${service_enabled:-unknown}"
+      echo "服务类型      : systemd"
+      echo "服务状态      : ${service_active:-未知}"
+      echo "开机自启      : ${service_enabled:-未知}"
       ;;
     script)
-      echo "Service      : script"
-      echo "PID          : ${pid:-unknown}"
+      echo "服务类型      : 脚本模式"
+      echo "进程 ID       : ${pid:-未知}"
       ;;
     none)
-      echo "Service      : none"
+      echo "服务类型      : 未安装"
       ;;
   esac
 
-  echo "Generate     : ${generate_status:-unknown}"
+  echo "配置生成状态  : ${generate_status:-未知}"
   if [ -n "${generate_reason:-}" ]; then
-    echo "GenReason    : $generate_reason"
+    echo "生成失败原因  : $generate_reason"
   fi
   if [ -n "${config_source:-}" ]; then
-    echo "ConfigSource : $config_source"
+    echo "配置来源      : $config_source"
   fi
   if [ -n "${generate_at:-}" ]; then
-    echo "GeneratedAt  : $generate_at"
+    echo "生成时间      : $generate_at"
   fi
 
   if [ -n "${run_status:-}" ]; then
-    echo "RunStatus    : $run_status"
+    echo "运行结果      : $run_status"
   fi
   if [ -n "${run_mode:-}" ]; then
-    echo "RunMode      : $run_mode"
+    echo "运行方式      : $run_mode"
   fi
   if [ -n "${run_pid:-}" ]; then
-    echo "RunPID       : $run_pid"
+    echo "运行进程      : $run_pid"
   fi
   if [ -n "${run_at:-}" ]; then
-    echo "RunAt        : $run_at"
+    echo "启动时间      : $run_at"
   fi
 
-  echo "ProxyPort    : ${http_port:-unknown}"
-  echo "DashPort     : ${dashboard_port:-unknown}"
+  echo "代理端口      : ${http_port:-未知}"
+  echo "面板端口      : ${dashboard_port:-未知}"
 
   if [ -n "${controller:-}" ]; then
-    echo "Controller   : $controller"
+    echo "控制地址      : $controller"
   else
-    echo "Controller   : unknown"
+    echo "控制地址      : 未知"
   fi
 
   if [ -n "${dashboard_url:-}" ]; then
-    echo "Dashboard    : $dashboard_url"
+    echo "面板地址      : $dashboard_url"
   fi
 
-  echo "Secret       : $secret_exists"
+  echo "密钥状态      : $secret_exists"
 }
 
 doctor_ok() {
@@ -843,30 +843,30 @@ cmd_doctor() {
 
   mode="$(detect_mode)"
 
-  echo "=== Clash Doctor ==="
-  echo "Project    : $PROJECT_DIR"
-  echo "Mode       : $mode"
-  echo "Config     : $RUNTIME_CONFIG"
+  echo "=== Clash 健康检查 ==="
+  echo "项目路径    : $PROJECT_DIR"
+  echo "运行模式    : $mode"
+  echo "配置文件    : $RUNTIME_CONFIG"
   echo
 
   if [ -s "$RUNTIME_CONFIG" ]; then
-    doctor_ok "runtime config exists: $RUNTIME_CONFIG"
+    doctor_ok "运行配置文件存在: $RUNTIME_CONFIG"
   else
-    doctor_err "runtime config missing or empty: $RUNTIME_CONFIG"
+    doctor_err "运行配置文件不存在或为空: $RUNTIME_CONFIG"
     failed=1
   fi
 
   if [ -f "$RUNTIME_CONFIG" ]; then
     if grep -q '\${' "$RUNTIME_CONFIG"; then
-      doctor_err "runtime config contains unresolved placeholders"
+      doctor_err "配置文件存在未替换变量"
       failed=1
     else
-      doctor_ok "runtime config has no unresolved placeholders"
+      doctor_ok "配置文件检查通过（无未替换变量）"
     fi
   fi
 
   if [ -f "$STATE_FILE" ]; then
-    doctor_ok "state file exists: $STATE_FILE"
+    doctor_ok "状态文件存在: $STATE_FILE"
 
     last_generate_status="$(read_state_value LAST_GENERATE_STATUS || true)"
     last_generate_reason="$(read_state_value LAST_GENERATE_REASON || true)"
@@ -874,21 +874,21 @@ cmd_doctor() {
 
     if [ -n "${last_generate_status:-}" ]; then
       if [ "$last_generate_status" = "success" ]; then
-        doctor_ok "last generate status: success (${last_generate_reason:-unknown})"
+        doctor_ok "最近配置生成状态：成功 (${last_generate_reason:-未知})"
       else
-        doctor_warn "last generate status: ${last_generate_status:-unknown} (${last_generate_reason:-unknown})"
+        doctor_warn "最近配置生成状态：${last_generate_status:-未知} (${last_generate_reason:-未知})"
         warned=1
       fi
     else
-      doctor_warn "state file exists but LAST_GENERATE_STATUS is empty"
+      doctor_warn "状态文件存在，但 LAST_GENERATE_STATUS 为空"
       warned=1
     fi
 
     if [ -n "${last_config_source:-}" ]; then
-      doctor_ok "config source: $last_config_source"
+      doctor_ok "配置来源: $last_config_source"
     fi
   else
-    doctor_warn "state file missing: $STATE_FILE"
+    doctor_warn "状态文件缺失: $STATE_FILE"
     warned=1
   fi
 
@@ -896,31 +896,31 @@ cmd_doctor() {
     systemd)
       if systemctl is-active --quiet "$SERVICE_NAME"; then
         running="yes"
-        doctor_ok "systemd service is active"
+        doctor_ok "systemd 服务运行正常"
       else
-        doctor_err "systemd service is installed but not active"
+        doctor_err "systemd 服务已安装但未运行"
         failed=1
       fi
       ;;
     script)
       if is_script_running; then
         running="yes"
-        doctor_ok "script mode process is running (pid=$(read_pid 2>/dev/null || echo unknown))"
+        doctor_ok "脚本模式进程正在运行 (pid=$(read_pid 2>/dev/null || echo 未知))"
       else
-        doctor_err "script mode detected but PID is not running"
+        doctor_err "已检测到脚本模式，但进程未运行"
         failed=1
       fi
       ;;
     systemd-installed)
-      doctor_warn "systemd unit exists but service is not running"
+      doctor_warn "systemd 单元已存在，但服务未运行"
       warned=1
       ;;
     none)
-      doctor_warn "no running instance detected"
+      doctor_warn "未检测到运行中的实例"
       warned=1
       ;;
     *)
-      doctor_err "unknown mode: $mode"
+      doctor_err "未知运行模式: $mode"
       failed=1
       ;;
   esac
@@ -930,51 +930,51 @@ cmd_doctor() {
   dashboard_port="$(port_from_controller)"
 
   if [ -n "${controller:-}" ]; then
-    doctor_ok "external-controller configured: $controller"
+    doctor_ok "控制地址已配置: $controller"
   else
-    doctor_warn "external-controller not found in runtime config, fallback assumed: 127.0.0.1:9090"
+    doctor_warn "未配置 external-controller，使用默认值: 127.0.0.1:9090"
     warned=1
   fi
 
   if [ -n "${dashboard_url:-}" ]; then
-    doctor_ok "dashboard url: $dashboard_url"
+    doctor_ok "面板地址: $dashboard_url"
   else
-    doctor_warn "dashboard url could not be derived"
+    doctor_warn "无法获取面板地址"
     warned=1
   fi
 
   http_port="$(http_port_from_config)"
   if check_port_listening "$http_port"; then
-    doctor_ok "proxy port is listening: $http_port"
+    doctor_ok "代理端口正常监听: $http_port"
   else
     rc=$?
     if [ "$rc" -eq 2 ]; then
-      doctor_warn "cannot verify proxy port (ss/netstat not available)"
+      doctor_warn "无法检测代理端口（缺少 ss/netstat 工具）"
       warned=1
     else
       if [ "$running" = "yes" ]; then
-        doctor_err "proxy port is not listening: $http_port"
+        doctor_err "代理端口未监听: $http_port"
         failed=1
       else
-        doctor_warn "proxy port is not listening: $http_port"
+        doctor_warn "代理端口未监听: $http_port"
         warned=1
       fi
     fi
   fi
 
   if check_port_listening "$dashboard_port"; then
-    doctor_ok "dashboard port is listening: $dashboard_port"
+    doctor_ok "面板端口正常监听: $dashboard_port"
   else
     rc=$?
     if [ "$rc" -eq 2 ]; then
-      doctor_warn "cannot verify dashboard port (ss/netstat not available)"
+      doctor_warn "无法检测面板端口（缺少 ss/netstat 工具）"
       warned=1
     else
       if [ "$running" = "yes" ]; then
-        doctor_err "dashboard port is not listening: $dashboard_port"
+        doctor_err "面板端口未监听: $dashboard_port"
         failed=1
       else
-        doctor_warn "dashboard port is not listening: $dashboard_port"
+        doctor_warn "面板端口未监听: $dashboard_port"
         warned=1
       fi
     fi
@@ -982,14 +982,14 @@ cmd_doctor() {
 
   if [ -n "${dashboard_url:-}" ]; then
     if check_dashboard_http "$dashboard_url"; then
-      doctor_ok "dashboard http reachable"
+      doctor_ok "面板访问正常"
     else
       rc=$?
       if [ "$rc" -eq 2 ]; then
-        doctor_warn "cannot verify dashboard http (curl/wget not available)"
+        doctor_warn "无法检测面板 HTTP（缺少 curl/wget 工具）"
         warned=1
       else
-        doctor_warn "dashboard http not reachable: $dashboard_url"
+        doctor_warn "面板无法访问: $dashboard_url"
         warned=1
       fi
     fi
@@ -997,38 +997,38 @@ cmd_doctor() {
 
   secret="$(read_runtime_config_value "secret" || true)"
   if [ -n "${secret:-}" ]; then
-    doctor_ok "secret exists in runtime config"
+    doctor_ok "已配置 secret"
   else
-    doctor_warn "secret missing in runtime config"
+    doctor_warn "未配置 secret"
     warned=1
   fi
 
   if command_exists clashctl; then
-    doctor_ok "clashctl command available: $(command -v clashctl)"
+    doctor_ok "clashctl 命令可用: $(command -v clashctl)"
   else
-    doctor_warn "clashctl command not found in PATH"
+    doctor_warn "未在 PATH 中找到 clashctl 命令"
     warned=1
   fi
 
   if [ -f "$PROFILED_FILE" ]; then
-    doctor_ok "shell proxy helper exists: $PROFILED_FILE"
+    doctor_ok "Shell 代理辅助脚本存在: $PROFILED_FILE"
   else
-    doctor_warn "shell proxy helper missing: $PROFILED_FILE"
+    doctor_warn "Shell 代理辅助脚本缺失: $PROFILED_FILE"
     warned=1
   fi
 
   echo
   if [ "$failed" -ne 0 ]; then
-    doctor_err "doctor result: FAILED"
+    doctor_err "检查结果：失败"
     return 1
   fi
 
   if [ "$warned" -ne 0 ]; then
-    doctor_warn "doctor result: WARN"
+    doctor_warn "检查结果：警告"
     return 0
   fi
 
-  doctor_ok "doctor result: HEALTHY"
+  doctor_ok "检查结果：健康"
   return 0
 }
 

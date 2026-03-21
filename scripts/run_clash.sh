@@ -20,19 +20,19 @@ for arg in "$@"; do
     --foreground) FOREGROUND=true ;;
     --daemon) DAEMON=true ;;
     *)
-      echo "[ERROR] Unknown arg: $arg" >&2
+      echo "[ERROR] 未知参数: $arg" >&2
       exit 2
       ;;
   esac
 done
 
 if [ "$FOREGROUND" = true ] && [ "$DAEMON" = true ]; then
-  echo "[ERROR] Cannot use both --foreground and --daemon" >&2
+  echo "[ERROR] 不能同时使用 --foreground 和 --daemon" >&2
   exit 2
 fi
 
 if [ "$FOREGROUND" = false ] && [ "$DAEMON" = false ]; then
-  echo "[ERROR] Must specify --foreground or --daemon" >&2
+  echo "[ERROR] 必须指定 --foreground 或 --daemon" >&2
   exit 2
 fi
 
@@ -40,12 +40,12 @@ fi
 # 基础校验
 # =========================
 if [ ! -s "$CONFIG_FILE" ]; then
-  echo "[ERROR] runtime config not found: $CONFIG_FILE" >&2
+  echo "[错ERROR误] 未找到运行配置文件: $CONFIG_FILE" >&2
   exit 2
 fi
 
 if grep -q '\${' "$CONFIG_FILE"; then
-  echo "[ERROR] unresolved placeholder found in $CONFIG_FILE" >&2
+  echo "[ERROR] 配置文件存在未替换变量: $CONFIG_FILE" >&2
   exit 2
 fi
 
@@ -65,15 +65,15 @@ source "$PROJECT_DIR/scripts/service_lib.sh"
 CLASH_BIN="$(resolve_clash_bin "$PROJECT_DIR" "${CpuArch:-}")"
 
 if [ ! -x "$CLASH_BIN" ]; then
-  echo "[ERROR] clash binary not executable: $CLASH_BIN" >&2
+  echo "[ERROR] Clash 二进制不可执行: $CLASH_BIN" >&2
   exit 2
 fi
 
 # =========================
-# config 测试（唯一一次）
+# 配置校验（仅执行一次）
 # =========================
 if ! "$CLASH_BIN" -t -f "$CONFIG_FILE" -d "$RUNTIME_DIR" >/dev/null 2>&1; then
-  echo "[ERROR] clash config test failed: $CONFIG_FILE" >&2
+  echo "[ERROR] Clash 配置校验失败: $CONFIG_FILE" >&2
   write_run_state "failed" "config-test"
   exit 2
 fi
@@ -87,13 +87,13 @@ if [ "$FOREGROUND" = true ]; then
 fi
 
 # =========================
-# 后台模式（script）
+# 后台模式（脚本）
 # =========================
 cleanup_dead_pid
 
 if is_script_running; then
   pid="$(read_pid 2>/dev/null || true)"
-  echo "[INFO] clash already running, pid=${pid:-unknown}"
+  echo "[INFO] Clash 已在运行，pid=${pid:-未知}"
   exit 0
 fi
 
@@ -104,4 +104,4 @@ echo "$pid" > "$PID_FILE"
 
 write_run_state "running" "script" "$pid"
 
-echo "[OK] Clash started in script mode, pid=$pid"
+echo "[SUCCESS] 已以脚本模式启动 Clash，pid=$pid"

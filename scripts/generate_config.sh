@@ -52,10 +52,10 @@ write_state() {
   local source="${3:-unknown}"
 
   cat > "$STATE_FILE" <<EOF
-LAST_GENERATE_STATUS=$status
-LAST_GENERATE_REASON=$reason
-LAST_CONFIG_SOURCE=$source
-LAST_GENERATE_AT=$(date -Iseconds)
+  LAST_GENERATE_STATUS=$status
+  LAST_GENERATE_REASON=$reason
+  LAST_CONFIG_SOURCE=$source
+  LAST_GENERATE_AT=$(date -Iseconds)
 EOF
 }
 
@@ -138,7 +138,7 @@ apply_controller_to_config() {
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
 
     if [ ! -f "$ui_src/index.html" ]; then
-      echo "[ERROR] UI not found: $ui_src/index.html" >&2
+      echo "[ERROR] UI 未找到: $ui_src/index.html" >&2
       exit 1
     fi
 
@@ -208,19 +208,19 @@ main() {
       exit 0
     fi
 
-    echo "[ERROR] auto update disabled and runtime config missing: $RUNTIME_CONFIG" >&2
+    echo "[错误] 已关闭自动更新，且运行配置缺失: $RUNTIME_CONFIG" >&2
     write_state "failed" "runtime_missing" "none"
     exit 1
   fi
 
   if [ -z "${CLASH_URL:-}" ]; then
-    echo "[ERROR] CLASH_URL is empty" >&2
+    echo "[错误] 未设置 CLASH_URL" >&2
     write_state "failed" "url_missing" "none"
     exit 1
   fi
 
   if ! download_subscription; then
-    echo "[ERROR] failed to download subscription" >&2
+    echo "[错误] 下载订阅失败" >&2
     write_state "failed" "download_failed" "none"
     exit 1
   fi
@@ -237,7 +237,7 @@ main() {
   fi
 
   if [ ! -s "$template_file" ]; then
-    echo "[ERROR] missing template config file: $template_file" >&2
+    echo "[错误] 缺少模板配置文件: $template_file" >&2
     write_state "failed" "missing_template" "none"
     exit 1
   fi
