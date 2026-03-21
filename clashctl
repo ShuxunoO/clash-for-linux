@@ -217,7 +217,7 @@ cmd_mode() {
 }
 
 cmd_generate() {
-  "$PROJECT_DIR/scripts/generate_config.sh"
+  bash "$PROJECT_DIR/scripts/generate_config.sh"
   ok "Config generated"
 }
 
@@ -302,7 +302,7 @@ cmd_update() {
   fi
 
   echo "[INFO] regenerating config ..."
-  if ! "$PROJECT_DIR/scripts/generate_config.sh"; then
+  if ! bash "$PROJECT_DIR/scripts/generate_config.sh"; then
     err "配置生成失败"
     exit 1
   fi
@@ -352,7 +352,7 @@ cmd_update_force() {
   }
 
   echo "[INFO] regenerating config ..."
-  if ! "$PROJECT_DIR/scripts/generate_config.sh"; then
+  if ! bash "$PROJECT_DIR/scripts/generate_config.sh"; then
     err "配置生成失败"
     exit 1
   fi
