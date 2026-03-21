@@ -286,7 +286,7 @@ cmd_ui() {
 
   case "$host" in
     0.0.0.0|::|localhost)
-      host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      host="$(curl -fsS --max-time 5 ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
       [ -n "${host:-}" ] || host="127.0.0.1"
       ;;
   esac
@@ -311,7 +311,7 @@ cmd_secret() {
 
   if [ ! -s "$RUNTIME_CONFIG" ]; then
     err "runtime config not found: $RUNTIME_CONFIG"
-    echo "Please run: clashctl generate" >&2
+    echo "Please run install.sh or clashctl generate" >&2
     exit 1
   fi
 
@@ -330,7 +330,13 @@ cmd_sub() {
   case "$subcmd" in
     show)
       if [ -f "$ENV_FILE" ]; then
-        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_URL=' "$ENV_FILE" || echo "CLASH_URL=未配置"
+        local current_url
+        current_url="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?CLASH_URL=['\"]?([^'\"]*)['\"]?$/\2/p" "$ENV_FILE" | head -n 1)"
+        if [ -n "${current_url:-}" ]; then
+          echo "[1] $current_url"
+        else
+          echo "未配置订阅"
+        fi
       else
         err "未找到 .env"
         exit 1

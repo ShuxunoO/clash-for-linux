@@ -59,6 +59,24 @@ LAST_GENERATE_AT=$(date -Iseconds)
 EOF
 }
 
+write_env_value() {
+  local key="$1"
+  local value="$2"
+  local env_file="$PROJECT_DIR/.env"
+  local escaped="${value//\\/\\\\}"
+  escaped="${escaped//&/\\&}"
+  escaped="${escaped//|/\\|}"
+  escaped="${escaped//\'/\'\\\'\'}"
+
+  [ -f "$env_file" ] || return 1
+
+  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$env_file"; then
+    sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}='${escaped}'|g" "$env_file"
+  else
+    printf "export %s='%s'\n" "$key" "$value" >> "$env_file"
+  fi
+}
+
 generate_secret() {
   if [ -n "${CLASH_SECRET:-}" ]; then
     echo "$CLASH_SECRET"
@@ -75,13 +93,14 @@ generate_secret() {
   fi
 
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 16
+    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 16
   else
-    head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16
   fi
 }
 
 SECRET="$(generate_secret)"
+write_env_value "CLASH_SECRET" "$SECRET" || true
 
 upsert_yaml_kv_local() {
   local file="$1"
@@ -97,6 +116,14 @@ upsert_yaml_kv_local() {
   fi
 }
 
+remove_yaml_key_local() {
+  local file="$1"
+  local key="$2"
+
+  [ -f "$file" ] || return 0
+  sed -i -E "/^[[:space:]]*${key}:/d" "$file"
+}
+
 apply_secret_to_config() {
   local file="$1"
   upsert_yaml_kv_local "$file" "secret" "$SECRET"
@@ -104,19 +131,16 @@ apply_secret_to_config() {
 
 apply_controller_to_config() {
   local file="$1"
-  local ui_dir="$RUNTIME_DIR/ui"
+  local ui_dir="$PROJECT_DIR/ui/dist"
 
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
 
-    rm -rf "$ui_dir"
-    mkdir -p "$ui_dir"
-
-    if [ -d "$PROJECT_DIR/dashboard/public" ]; then
-      cp -a "$PROJECT_DIR/dashboard/public/." "$ui_dir/"
+    if [ -f "$ui_dir/index.html" ]; then
       upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
     else
-      remove_yaml_key_local "$file" "external-ui"
+      echo "[ERROR] UI not found: $ui_dir/index.html" >&2
+      exit 1
     fi
   else
     remove_yaml_key_local "$file" "external-controller"
@@ -129,8 +153,14 @@ download_subscription() {
 
   local curl_cmd=(curl -fL -S --retry 2 --connect-timeout 10 -m 30 -o "$TMP_DOWNLOAD")
   [ "$ALLOW_INSECURE_TLS" = "true" ] && curl_cmd+=(-k)
-  curl_cmd+=("$CLASH_URL")
 
+  if [ -n "${CLASH_HEADERS:-}" ]; then
+    while IFS= read -r header; do
+      [ -n "$header" ] && curl_cmd+=(-H "$header")
+    done < <(printf '%s\n' "$CLASH_HEADERS" | tr ';' '\n')
+  fi
+
+  curl_cmd+=("$CLASH_URL")
   "${curl_cmd[@]}"
 }
 
@@ -140,7 +170,7 @@ is_complete_clash_config() {
 }
 
 cleanup_tmp_files() {
-  rm -f "$TMP_PROXY_FRAGMENT" "$TMP_CONFIG"
+  rm -f "$TMP_DOWNLOAD" "$TMP_NORMALIZED" "$TMP_PROXY_FRAGMENT" "$TMP_CONFIG"
 }
 
 build_fragment_config() {
@@ -164,14 +194,6 @@ finalize_config() {
   mv -f "$file" "$RUNTIME_CONFIG"
 }
 
-remove_yaml_key_local() {
-  local file="$1"
-  local key="$2"
-
-  [ -f "$file" ] || return 0
-  sed -i -E "/^[[:space:]]*${key}:/d" "$file"
-}
-
 main() {
   local template_file="$CONFIG_DIR/template.yaml"
 
@@ -186,13 +208,14 @@ main() {
     exit 1
   fi
 
-  if ! download_subscription; then
-    if [ -s "$RUNTIME_CONFIG" ]; then
-      write_state "success" "download_failed_keep_runtime" "runtime_existing"
-      exit 0
-    fi
+  if [ -z "${CLASH_URL:-}" ]; then
+    echo "[ERROR] CLASH_URL is empty" >&2
+    write_state "failed" "url_missing" "none"
+    exit 1
+  fi
 
-    echo "[ERROR] failed to download subscription and runtime config missing" >&2
+  if ! download_subscription; then
+    echo "[ERROR] failed to download subscription" >&2
     write_state "failed" "download_failed" "none"
     exit 1
   fi
@@ -205,14 +228,12 @@ main() {
     apply_secret_to_config "$TMP_CONFIG"
     finalize_config "$TMP_CONFIG"
     write_state "success" "subscription_full" "subscription_full"
-    cleanup_tmp_files
     exit 0
   fi
 
   if [ ! -s "$template_file" ]; then
     echo "[ERROR] missing template config file: $template_file" >&2
     write_state "failed" "missing_template" "none"
-    cleanup_tmp_files
     exit 1
   fi
 
@@ -222,7 +243,6 @@ main() {
 
   finalize_config "$TMP_CONFIG"
   write_state "success" "subscription_fragment_merged" "subscription_fragment"
-  cleanup_tmp_files
 }
 
 trap cleanup_tmp_files EXIT
