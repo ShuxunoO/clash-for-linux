@@ -131,17 +131,22 @@ apply_secret_to_config() {
 
 apply_controller_to_config() {
   local file="$1"
-  local ui_dir="$PROJECT_DIR/ui/dist"
+  local ui_src="$PROJECT_DIR/ui/dist"
+  local ui_dir="$RUNTIME_DIR/ui"
 
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
 
-    if [ -f "$ui_dir/index.html" ]; then
-      upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
-    else
-      echo "[ERROR] UI not found: $ui_dir/index.html" >&2
+    if [ ! -f "$ui_src/index.html" ]; then
+      echo "[ERROR] UI not found: $ui_src/index.html" >&2
       exit 1
     fi
+
+    rm -rf "$ui_dir"
+    mkdir -p "$ui_dir"
+    cp -a "$ui_src/." "$ui_dir/"
+
+    upsert_yaml_kv_local "$file" "external-ui" "$ui_dir"
   else
     remove_yaml_key_local "$file" "external-controller"
     remove_yaml_key_local "$file" "external-ui"
