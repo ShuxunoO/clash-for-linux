@@ -53,6 +53,8 @@ LOG_FILE="$PROJECT_DIR/logs/clash.log"
 
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/scripts/service_lib.sh"
+# shellcheck source=scripts/ui.sh
+source "$PROJECT_DIR/scripts/ui.sh"
 
 log()   { printf "%b\n" "$*"; }
 info()  { log "\033[36m[INFO]\033[0m $*"; }
@@ -689,134 +691,115 @@ cmd_mixin() {
 }
 
 cmd_status() {
-  local mode running="no"
-  local service_active="" service_enabled=""
-  local pid=""
-  local controller dashboard_url
-  local config_source generate_status generate_reason generate_at
-  local run_status run_mode run_pid run_at
-  local http_port dashboard_port
-  local secret_exists="no"
+  local mode service_type="未安装"
+  local running="未运行"
+  local service_active="-" service_enabled="-"
+  local pid="-"
+  local controller="-"
+  local dashboard_url="-"
+  local config_source="-"
+  local generate_status="-"
+  local generate_reason="-"
+  local generate_at="-"
+  local run_status="-"
+  local run_mode="-"
+  local run_pid="-"
+  local run_at="-"
+  local http_port="-"
+  local dashboard_port="-"
+  local secret_status="未配置"
+  local config_exists="否"
+  local state_exists="否"
 
   mode="$(detect_mode)"
 
   case "$mode" in
     systemd)
-      if systemctl is-active --quiet "$SERVICE_NAME"; then
-        running="yes"
-      fi
+      service_type="systemd"
+      running="运行中"
       service_active="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
       service_enabled="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
       ;;
     systemd-installed)
-      running="no"
+      service_type="systemd"
+      running="未运行"
       service_active="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
       service_enabled="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
       ;;
     script)
+      service_type="脚本模式"
       if is_script_running; then
-        running="yes"
+        running="运行中"
       fi
-      pid="$(read_pid 2>/dev/null || true)"
+      pid="$(read_pid 2>/dev/null || echo "-")"
       ;;
     none)
-      running="no"
+      service_type="未安装"
+      running="未运行"
       ;;
   esac
 
-  generate_status="$(read_state_value LAST_GENERATE_STATUS || true)"
-  generate_reason="$(read_state_value LAST_GENERATE_REASON || true)"
-  config_source="$(read_state_value LAST_CONFIG_SOURCE || true)"
-  generate_at="$(read_state_value LAST_GENERATE_AT || true)"
+  [ -f "$RUNTIME_CONFIG" ] && config_exists="是"
+  [ -f "$STATE_FILE" ] && state_exists="是"
 
-  run_status="$(read_state_value LAST_RUN_STATUS || true)"
-  run_mode="$(read_state_value LAST_RUN_MODE || true)"
-  run_pid="$(read_state_value LAST_RUN_PID || true)"
-  run_at="$(read_state_value LAST_RUN_AT || true)"
+  generate_status="$(read_state_value LAST_GENERATE_STATUS || echo "-")"
+  generate_reason="$(read_state_value LAST_GENERATE_REASON || echo "-")"
+  config_source="$(read_state_value LAST_CONFIG_SOURCE || echo "-")"
+  generate_at="$(read_state_value LAST_GENERATE_AT || echo "-")"
 
-  # 一律以 runtime/config.yaml 为准，避免显示旧端口
-  http_port="$(http_port_from_config || true)"
-  dashboard_port="$(port_from_controller || true)"
-  controller="$(read_runtime_config_value "external-controller" || true)"
+  run_status="$(read_state_value LAST_RUN_STATUS || echo "-")"
+  run_mode="$(read_state_value LAST_RUN_MODE || echo "-")"
+  run_pid="$(read_state_value LAST_RUN_PID || echo "-")"
+  run_at="$(read_state_value LAST_RUN_AT || echo "-")"
 
-  # dashboard_url 最好也建立在 runtime config 基础上
-  dashboard_url="$(cmd_ui --raw 2>/dev/null || true)"
+  http_port="$(http_port_from_config || echo "-")"
+  dashboard_port="$(port_from_controller || echo "-")"
+  controller="$(read_runtime_config_value "external-controller" || echo "-")"
+  dashboard_url="$(cmd_ui --raw 2>/dev/null || echo "-")"
 
   if [ -n "$(read_runtime_config_value "secret" || true)" ]; then
-    secret_exists="yes"
+    secret_status="已配置"
   fi
 
-  echo "=== Clash 状态 ==="
-  echo "项目路径      : $PROJECT_DIR"
-  echo "运行模式      : $mode"
-  echo "运行状态      : $running"
-  echo "配置文件      : $RUNTIME_CONFIG"
+  ui_header "clashctl 状态"
 
-  if [ -f "$RUNTIME_CONFIG" ]; then
-    echo "配置存在      : 是"
-  else
-    echo "配置存在      : 否"
-  fi
+  ui_blank
+  ui_summary_begin "运行状态"
+  ui_summary_row "项目路径" "$PROJECT_DIR"
+  ui_summary_row "运行模式" "$mode"
+  ui_summary_row "运行状态" "$running"
+  ui_summary_row "配置存在" "$config_exists"
+  ui_summary_row "状态文件" "$state_exists"
+  ui_summary_end
 
-  if [ -f "$STATE_FILE" ]; then
-    echo "状态文件      : $STATE_FILE"
-  else
-    echo "状态文件      : 缺失"
-  fi
+  ui_blank
+  ui_summary_begin "服务信息"
+  ui_summary_row "服务类型" "$service_type"
+  ui_summary_row "服务状态" "$service_active"
+  ui_summary_row "开机自启" "$service_enabled"
+  ui_summary_row "进程 ID" "$pid"
+  ui_summary_end
 
-  case "$mode" in
-    systemd|systemd-installed)
-      echo "服务类型      : systemd"
-      echo "服务状态      : ${service_active:-未知}"
-      echo "开机自启      : ${service_enabled:-未知}"
-      ;;
-    script)
-      echo "服务类型      : 脚本模式"
-      echo "进程 ID       : ${pid:-未知}"
-      ;;
-    none)
-      echo "服务类型      : 未安装"
-      ;;
-  esac
+  ui_blank
+  ui_summary_begin "配置与运行"
+  ui_summary_row "生成状态" "$generate_status"
+  ui_summary_row "失败原因" "$generate_reason"
+  ui_summary_row "配置来源" "$config_source"
+  ui_summary_row "生成时间" "$generate_at"
+  ui_summary_row "运行结果" "$run_status"
+  ui_summary_row "运行方式" "$run_mode"
+  ui_summary_row "运行进程" "$run_pid"
+  ui_summary_row "启动时间" "$run_at"
+  ui_summary_end
 
-  echo "配置生成状态  : ${generate_status:-未知}"
-  if [ -n "${generate_reason:-}" ]; then
-    echo "生成失败原因  : $generate_reason"
-  fi
-  if [ -n "${config_source:-}" ]; then
-    echo "配置来源      : $config_source"
-  fi
-  if [ -n "${generate_at:-}" ]; then
-    echo "生成时间      : $generate_at"
-  fi
-
-  if [ -n "${run_status:-}" ]; then
-    echo "运行结果      : $run_status"
-  fi
-  if [ -n "${run_mode:-}" ]; then
-    echo "运行方式      : $run_mode"
-  fi
-  if [ -n "${run_pid:-}" ]; then
-    echo "运行进程      : $run_pid"
-  fi
-  if [ -n "${run_at:-}" ]; then
-    echo "启动时间      : $run_at"
-  fi
-
-  echo "代理端口      : ${http_port:-未知}"
-  echo "面板端口      : ${dashboard_port:-未知}"
-
-  if [ -n "${controller:-}" ]; then
-    echo "控制地址      : $controller"
-  else
-    echo "控制地址      : 未知"
-  fi
-
-  if [ -n "${dashboard_url:-}" ]; then
-    echo "面板地址      : $dashboard_url"
-  fi
-
-  echo "密钥状态      : $secret_exists"
+  ui_blank
+  ui_summary_begin "端口与面板"
+  ui_summary_row "代理端口" "$http_port"
+  ui_summary_row "面板端口" "$dashboard_port"
+  ui_summary_row "控制地址" "$controller"
+  ui_summary_row "面板地址" "$dashboard_url"
+  ui_summary_row "密钥状态" "$secret_status"
+  ui_summary_end
 }
 
 doctor_ok() {
@@ -832,203 +815,245 @@ doctor_err() {
 }
 
 cmd_doctor() {
-  local mode running="no"
+  local mode running="未运行"
   local failed=0
   local warned=0
 
-  local controller dashboard_url dashboard_port
-  local http_port
-  local secret
-  local last_generate_status last_generate_reason last_config_source
+  local controller="-"
+  local dashboard_url="-"
+  local dashboard_port="-"
+  local http_port="-"
+  local secret=""
+  local last_generate_status="-"
+  local last_generate_reason="-"
+  local last_config_source="-"
 
   mode="$(detect_mode)"
 
-  echo "=== Clash 健康检查 ==="
-  echo "项目路径    : $PROJECT_DIR"
-  echo "运行模式    : $mode"
-  echo "配置文件    : $RUNTIME_CONFIG"
-  echo
+  ui_header "clashctl 诊断"
 
+  ui_step "[检查] 基础信息"
+  ui_info "项目路径：$PROJECT_DIR"
+  ui_info "运行模式：$mode"
+  ui_info "配置文件：$RUNTIME_CONFIG"
+
+  ui_blank
+  ui_step "[检查] 运行配置"
   if [ -s "$RUNTIME_CONFIG" ]; then
-    doctor_ok "运行配置文件存在: $RUNTIME_CONFIG"
+    ui_ok "运行配置文件存在"
   else
-    doctor_err "运行配置文件不存在或为空: $RUNTIME_CONFIG"
+    ui_error "运行配置文件不存在或为空"
     failed=1
   fi
 
   if [ -f "$RUNTIME_CONFIG" ]; then
     if grep -q '\${' "$RUNTIME_CONFIG"; then
-      doctor_err "配置文件存在未替换变量"
+      ui_error "配置文件存在未替换变量"
       failed=1
     else
-      doctor_ok "配置文件检查通过（无未替换变量）"
+      ui_ok "配置文件检查通过"
     fi
   fi
 
+  ui_blank
+  ui_step "[检查] 状态文件"
   if [ -f "$STATE_FILE" ]; then
-    doctor_ok "状态文件存在: $STATE_FILE"
+    ui_ok "状态文件存在"
 
-    last_generate_status="$(read_state_value LAST_GENERATE_STATUS || true)"
-    last_generate_reason="$(read_state_value LAST_GENERATE_REASON || true)"
-    last_config_source="$(read_state_value LAST_CONFIG_SOURCE || true)"
+    last_generate_status="$(read_state_value LAST_GENERATE_STATUS || echo "-")"
+    last_generate_reason="$(read_state_value LAST_GENERATE_REASON || echo "-")"
+    last_config_source="$(read_state_value LAST_CONFIG_SOURCE || echo "-")"
 
-    if [ -n "${last_generate_status:-}" ]; then
-      if [ "$last_generate_status" = "success" ]; then
-        doctor_ok "最近配置生成状态：成功 (${last_generate_reason:-未知})"
-      else
-        doctor_warn "最近配置生成状态：${last_generate_status:-未知} (${last_generate_reason:-未知})"
-        warned=1
-      fi
+    if [ "$last_generate_status" = "success" ]; then
+      ui_ok "最近配置生成成功"
+    elif [ "$last_generate_status" != "-" ]; then
+      ui_warn "最近配置生成状态：$last_generate_status"
+      warned=1
     else
-      doctor_warn "状态文件存在，但 LAST_GENERATE_STATUS 为空"
+      ui_warn "状态文件存在但生成状态缺失"
       warned=1
     fi
 
-    if [ -n "${last_config_source:-}" ]; then
-      doctor_ok "配置来源: $last_config_source"
-    fi
+    [ "$last_generate_reason" != "-" ] && ui_info "生成原因：$last_generate_reason"
+    [ "$last_config_source" != "-" ] && ui_info "配置来源：$last_config_source"
   else
-    doctor_warn "状态文件缺失: $STATE_FILE"
+    ui_warn "状态文件缺失"
     warned=1
   fi
 
+  ui_blank
+  ui_step "[检查] 服务运行"
   case "$mode" in
     systemd)
       if systemctl is-active --quiet "$SERVICE_NAME"; then
-        running="yes"
-        doctor_ok "systemd 服务运行正常"
+        running="运行中"
+        ui_ok "systemd 服务运行正常"
       else
-        doctor_err "systemd 服务已安装但未运行"
+        ui_error "systemd 服务已安装但未运行"
         failed=1
       fi
       ;;
     script)
       if is_script_running; then
-        running="yes"
-        doctor_ok "脚本模式进程正在运行 (pid=$(read_pid 2>/dev/null || echo 未知))"
+        running="运行中"
+        ui_ok "脚本模式进程正在运行"
       else
-        doctor_err "已检测到脚本模式，但进程未运行"
+        ui_error "脚本模式进程未运行"
         failed=1
       fi
       ;;
     systemd-installed)
-      doctor_warn "systemd 单元已存在，但服务未运行"
+      ui_warn "systemd 服务已安装但未运行"
       warned=1
       ;;
     none)
-      doctor_warn "未检测到运行中的实例"
+      ui_warn "未检测到运行中的实例"
       warned=1
       ;;
     *)
-      doctor_err "未知运行模式: $mode"
+      ui_error "未知运行模式：$mode"
       failed=1
       ;;
   esac
 
-  dashboard_url="$(cmd_ui --raw 2>/dev/null || true)"
-  controller="$(read_runtime_config_value "external-controller" || true)"
-  dashboard_port="$(port_from_controller)"
+  ui_blank
+  ui_step "[检查] 控制面板"
+  dashboard_url="$(cmd_ui --raw 2>/dev/null || echo "-")"
+  controller="$(read_runtime_config_value "external-controller" || echo "-")"
+  dashboard_port="$(port_from_controller || echo "-")"
 
-  if [ -n "${controller:-}" ]; then
-    doctor_ok "控制地址已配置: $controller"
+  if [ "$controller" != "-" ]; then
+    ui_ok "控制地址已配置：$controller"
   else
-    doctor_warn "未配置 external-controller，使用默认值: 127.0.0.1:9090"
+    ui_warn "未配置 external-controller，将使用默认值"
     warned=1
   fi
 
-  if [ -n "${dashboard_url:-}" ]; then
-    doctor_ok "面板地址: $dashboard_url"
+  if [ "$dashboard_url" != "-" ]; then
+    ui_ok "面板地址可解析"
   else
-    doctor_warn "无法获取面板地址"
+    ui_warn "无法获取面板地址"
     warned=1
   fi
 
-  http_port="$(http_port_from_config)"
-  if check_port_listening "$http_port"; then
-    doctor_ok "代理端口正常监听: $http_port"
-  else
-    rc=$?
-    if [ "$rc" -eq 2 ]; then
-      doctor_warn "无法检测代理端口（缺少 ss/netstat 工具）"
-      warned=1
-    else
-      if [ "$running" = "yes" ]; then
-        doctor_err "代理端口未监听: $http_port"
-        failed=1
-      else
-        doctor_warn "代理端口未监听: $http_port"
-        warned=1
-      fi
-    fi
-  fi
-
-  if check_port_listening "$dashboard_port"; then
-    doctor_ok "面板端口正常监听: $dashboard_port"
-  else
-    rc=$?
-    if [ "$rc" -eq 2 ]; then
-      doctor_warn "无法检测面板端口（缺少 ss/netstat 工具）"
-      warned=1
-    else
-      if [ "$running" = "yes" ]; then
-        doctor_err "面板端口未监听: $dashboard_port"
-        failed=1
-      else
-        doctor_warn "面板端口未监听: $dashboard_port"
-        warned=1
-      fi
-    fi
-  fi
-
-  if [ -n "${dashboard_url:-}" ]; then
-    if check_dashboard_http "$dashboard_url"; then
-      doctor_ok "面板访问正常"
+  ui_blank
+  ui_step "[检查] 端口监听"
+  http_port="$(http_port_from_config || echo "-")"
+  if [ "$http_port" != "-" ]; then
+    if check_port_listening "$http_port"; then
+      ui_ok "代理端口监听正常：$http_port"
     else
       rc=$?
       if [ "$rc" -eq 2 ]; then
-        doctor_warn "无法检测面板 HTTP（缺少 curl/wget 工具）"
+        ui_warn "无法检测代理端口（缺少 ss/netstat）"
         warned=1
       else
-        doctor_warn "面板无法访问: $dashboard_url"
+        if [ "$running" = "运行中" ]; then
+          ui_error "代理端口未监听：$http_port"
+          failed=1
+        else
+          ui_warn "代理端口未监听：$http_port"
+          warned=1
+        fi
+      fi
+    fi
+  else
+    ui_warn "无法解析代理端口"
+    warned=1
+  fi
+
+  if [ "$dashboard_port" != "-" ]; then
+    if check_port_listening "$dashboard_port"; then
+      ui_ok "面板端口监听正常：$dashboard_port"
+    else
+      rc=$?
+      if [ "$rc" -eq 2 ]; then
+        ui_warn "无法检测面板端口（缺少 ss/netstat）"
+        warned=1
+      else
+        if [ "$running" = "运行中" ]; then
+          ui_error "面板端口未监听：$dashboard_port"
+          failed=1
+        else
+          ui_warn "面板端口未监听：$dashboard_port"
+          warned=1
+        fi
+      fi
+    fi
+  else
+    ui_warn "无法解析面板端口"
+    warned=1
+  fi
+
+  ui_blank
+  ui_step "[检查] 面板访问"
+  if [ "$dashboard_url" != "-" ]; then
+    if check_dashboard_http "$dashboard_url"; then
+      ui_ok "面板访问正常"
+    else
+      rc=$?
+      if [ "$rc" -eq 2 ]; then
+        ui_warn "无法检测面板 HTTP（缺少 curl/wget）"
+        warned=1
+      else
+        ui_warn "面板无法访问"
         warned=1
       fi
     fi
   fi
 
+  ui_blank
+  ui_step "[检查] 其他组件"
   secret="$(read_runtime_config_value "secret" || true)"
   if [ -n "${secret:-}" ]; then
-    doctor_ok "已配置 secret"
+    ui_ok "已配置 Web 密钥"
   else
-    doctor_warn "未配置 secret"
+    ui_warn "未配置 Web 密钥"
     warned=1
   fi
 
   if command_exists clashctl; then
-    doctor_ok "clashctl 命令可用: $(command -v clashctl)"
+    ui_ok "clashctl 命令可用"
   else
-    doctor_warn "未在 PATH 中找到 clashctl 命令"
+    ui_warn "未在 PATH 中找到 clashctl"
     warned=1
   fi
 
   if [ -f "$PROFILED_FILE" ]; then
-    doctor_ok "Shell 代理辅助脚本存在: $PROFILED_FILE"
+    ui_ok "Shell 代理辅助脚本存在"
   else
-    doctor_warn "Shell 代理辅助脚本缺失: $PROFILED_FILE"
+    ui_warn "Shell 代理辅助脚本缺失"
     warned=1
   fi
 
-  echo
+  ui_blank
+  ui_summary_begin "诊断结果"
   if [ "$failed" -ne 0 ]; then
-    doctor_err "检查结果：失败"
+    ui_summary_row "状态" "失败"
+    ui_summary_row "说明" "存在必须修复的问题"
+    ui_summary_end
+
+    ui_next \
+      "查看状态：clashctl status" \
+      "重启服务：clashctl restart"
+
+    ui_debug_block \
+      "journalctl -u $SERVICE_NAME -e --no-pager" \
+      "cat $RUNTIME_CONFIG"
+
     return 1
   fi
 
   if [ "$warned" -ne 0 ]; then
-    doctor_warn "检查结果：警告"
+    ui_summary_row "状态" "警告"
+    ui_summary_row "说明" "可运行，但存在风险项"
+    ui_summary_end
     return 0
   fi
 
-  doctor_ok "检查结果：健康"
+  ui_summary_row "状态" "健康"
+  ui_summary_row "说明" "检查全部通过"
+  ui_summary_end
   return 0
 }
 

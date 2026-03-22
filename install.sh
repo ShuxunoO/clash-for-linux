@@ -2,6 +2,8 @@
 set -euo pipefail
 
 Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ui.sh
+. "$Server_Dir/scripts/ui.sh"
 Install_Dir="${CLASH_INSTALL_DIR:-$Server_Dir}"
 
 Service_Name="clash-for-linux"
@@ -11,20 +13,30 @@ Service_Group="root"
 # =========================
 # 基础校验
 # =========================
+ui_header "clashctl install"
+
+ui_step "[1/5] Preflight checks"
+
 if [ "$(id -u)" -ne 0 ]; then
-  echo "[ERROR] root required" >&2
-  exit 1
+  die "root privilege required"
 fi
+ui_ok "root privilege confirmed"
 
 if [ ! -f "${Server_Dir}/.env" ]; then
-  echo "[ERROR] .env not found in ${Server_Dir}" >&2
-  exit 1
+  die_with_reason \
+    ".env not found" \
+    "missing file: ${Server_Dir}/.env" \
+    "ensure project directory is complete"
 fi
+ui_ok ".env file found"
 
 # =========================
 # 同步文件
 # =========================
+ui_blank
+ui_step "[2/5] Prepare directories"
 mkdir -p "$Install_Dir"
+ui_ok "install dir ready: $Install_Dir"
 
 chmod +x "$Install_Dir"/clashctl 2>/dev/null || true
 chmod +x "$Install_Dir"/scripts/* 2>/dev/null || true
@@ -38,17 +50,43 @@ mkdir -p \
   "$Install_Dir/logs" \
   "$Install_Dir/config/mixin.d"
 
+ui_ok "runtime directory ready"
+ui_ok "logs directory ready"
+ui_ok "mixin directory ready"
+
 # =========================
 # 加载 env
 # =========================
 # shellcheck disable=SC1090
+ui_blank
+ui_step "[3/5] Load environment"
+
 source "$Install_Dir/.env"
+
+ui_ok ".env loaded"
 
 # shellcheck disable=SC1090
 source "$Install_Dir/scripts/get_cpu_arch.sh"
 
+ui_ok "cpu arch detected: ${CpuArch:-unknown}"
+
 # shellcheck disable=SC1090
 source "$Install_Dir/scripts/resolve_clash.sh"
+
+ui_blank
+ui_step "[4/5] Prepare core"
+
+if ! bash "$Install_Dir/scripts/resolve_clash.sh"; then
+  ui_error "failed to prepare clash core"
+  ui_fix_block \
+    "resolve_clash.sh returned non-zero" \
+    "check download URL and network connectivity"
+  ui_debug_block \
+    "bash $Install_Dir/scripts/resolve_clash.sh"
+  exit 1
+fi
+
+ui_ok "clash core ready"
 
 write_env_value() {
   local key="$1"
@@ -81,31 +119,45 @@ get_public_ip() {
 show_dashboard_info() {
   local secret="$1"
   local public_ip="$2"
-  local dashboard_port="9090"
-  local ui_url=""
+
+  local controller_addr="${CLASH_CONTROLLER_ADDR:-127.0.0.1:9090}"
+  local host="${controller_addr%:*}"
+  local port="${controller_addr##*:}"
+
+  local local_ui="http://127.0.0.1:${port}/ui"
+  local public_ui=""
 
   if [ -n "${public_ip:-}" ]; then
-    ui_url="http://${public_ip}:${dashboard_port}/ui/#/setup?hostname=${public_ip}&port=${dashboard_port}&secret=${secret}"
-  else
-    ui_url="http://127.0.0.1:${dashboard_port}/ui/#/setup?hostname=127.0.0.1&port=${dashboard_port}&secret=${secret}"
+    public_ui="http://${public_ip}:${port}/ui"
   fi
 
-  echo
-  echo "╔═══════════════════════════════════════════════╗"
-  echo "║                😼 Web 控制台                  ║"
-  echo "║═══════════════════════════════════════════════║"
-  echo "║                                               ║"
-  echo "║     🔓 注意放行端口：9090                     ║"
-  if [ -n "${public_ip:-}" ]; then
-    printf "║     🌏 公网：http://%-27s║\n" "${public_ip}:9090/ui"
-  else
-    printf "║     🏠 本地：http://%-27s║\n" "127.0.0.1:9090/ui"
+  ui_blank
+  ui_summary_begin "Dashboard"
+
+  ui_summary_row "Control" "${host}:${port}"
+  ui_summary_row "Local UI" "$local_ui"
+
+  if [ -n "$public_ui" ] && [ "$host" = "0.0.0.0" ]; then
+    ui_summary_row "Public UI" "$public_ui"
   fi
-  echo "║                                               ║"
-  echo "╚═══════════════════════════════════════════════╝"
-  echo
-  echo "😼 当前密钥：${secret}"
-  echo "🎯 面板地址：${ui_url}"
+
+  ui_summary_end
+
+  ui_blank
+  ui_subheader "Secret"
+  printf '  %s\n' "$secret"
+
+  # 安全提示（非常关键）
+  if [ "$host" = "0.0.0.0" ]; then
+    ui_security_block \
+      "面板已暴露到公网" \
+      "建议通过防火墙限制访问" \
+      "避免直接开放给所有来源"
+  else
+    ui_security_block \
+      "面板默认仅本机可访问" \
+      "未开启公网访问"
+  fi
 }
 
 wait_dashboard_ready() {
@@ -131,10 +183,11 @@ prompt_and_apply_subscription() {
 
   while true; do
     echo
-    read -r -p "✈️  请输入要添加的订阅链接：" sub_url
+    ui_subheader "订阅设置"
+    read -r -p "请输入要添加的订阅链接：" sub_url
 
     if [ -z "${sub_url:-}" ]; then
-      echo "❌ 订阅链接不能为空"
+      ui_error "❌ 订阅链接不能为空"
       continue
     fi
 
@@ -143,12 +196,12 @@ prompt_and_apply_subscription() {
     echo "⏳ 正在下载订阅..."
     echo "🍃 验证订阅配置..."
     if ! "$Install_Dir/scripts/generate_config.sh" >/dev/null 2>&1; then
-      echo "❌ 订阅不可用或转换失败，请检查链接后重试"
+      ui_error "❌ 订阅不可用或转换失败，请检查链接后重试"
       continue
     fi
     
-    echo "🎉 订阅已添加：[1] $sub_url"
-    echo "🔥 订阅已生效"
+    ui_ok "🎉 订阅已添加：[1] $sub_url"
+    ui_ok "🔥 订阅已生效"
 
     if command -v systemctl >/dev/null 2>&1; then
       systemctl restart "${Service_Name}.service"
@@ -168,15 +221,21 @@ prompt_and_apply_subscription() {
 # 内核检查
 # =========================
 if ! resolve_clash_bin "$Install_Dir" "${CpuArch:-}" >/dev/null 2>&1; then
-  echo "[ERROR] clash core not ready" >&2
-  exit 1
+  die_with_reason \
+    "clash core not ready" \
+    "binary validation failed" \
+    "check download result or architecture mismatch"
 fi
+
+ui_ok "clash core validated"
 
 # =========================
 # 安装 clashctl
 # =========================
 ln -sf "$Install_Dir/clashctl" /usr/local/bin/clashctl
 chmod +x "$Install_Dir/clashctl"
+
+ui_ok "clashctl installed: /usr/local/bin/clashctl"
 
 # =========================
 # 安装 proxy helper
@@ -229,16 +288,19 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable "${Service_Name}.service" || true
   fi
 else
-  echo "[WARN] systemd not found, will use script mode"
+  ui_warn "未找到 systemd，回退到脚本模式"
 fi
 
 # =========================
 # 输出 + 订阅录入
 # =========================
-echo
-echo "=== Install Complete ==="
-echo "Install Dir : $Install_Dir"
-echo "clashctl    : /usr/local/bin/clashctl"
+ui_blank
+ui_summary_begin "Installation Summary"
+ui_summary_row "Status" "Installed"
+ui_summary_row "Path" "$Install_Dir"
+ui_summary_row "clashctl" "/usr/local/bin/clashctl"
+ui_summary_row "Mode" "systemd"
+ui_summary_end
 
 prompt_and_apply_subscription
 
