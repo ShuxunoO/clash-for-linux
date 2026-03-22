@@ -102,9 +102,53 @@ write_env_value() {
   fi
 }
 
+
+if [ -z "${CLASH_SECRET:-}" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    CLASH_SECRET="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  else
+    CLASH_SECRET="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+  fi
+  write_env_value "CLASH_SECRET" "$CLASH_SECRET"
+fi
+
 read_env_value() {
   local key="$1"
   sed -nE "s/^[[:space:]]*(export[[:space:]]+)?${key}=['\"]?([^'\"]*)['\"]?$/\2/p" "$Install_Dir/.env" | head -n 1
+}
+
+mask_secret() {
+  local s="$1"
+  local len=${#s}
+
+  [ -z "$s" ] && return 0
+
+  if [ "$len" -le 8 ]; then
+    printf '%s\n' '********'
+    return 0
+  fi
+
+  printf '%s****%s\n' "${s:0:4}" "${s: -4}"
+}
+
+get_display_secret() {
+  local secret="$1"
+
+  case "${CLASH_SHOW_SECRET:-false}" in
+    true|TRUE|1|yes|YES)
+      printf '%s\n' "$secret"
+      return 0
+      ;;
+  esac
+
+  case "${CLASH_SHOW_SECRET_MASKED:-true}" in
+    true|TRUE|1|yes|YES)
+      mask_secret "$secret"
+      return 0
+      ;;
+  esac
+
+  printf '%s\n' ""
 }
 
 get_public_ip() {
@@ -147,8 +191,8 @@ EOF
 }
 
 show_dashboard_info() {
-  local secret="$1"
-  local public_ip="$2"
+  local secret="${1:-}"
+  local public_ip="${2:-}"
 
   local controller_addr="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
   local host="${controller_addr%:*}"
@@ -165,22 +209,13 @@ show_dashboard_info() {
   [ -n "$lan_ip" ] && lan_ui="http://${lan_ip}:${port}/ui"
   [ -n "$public_ip" ] && public_ui="http://${public_ip}:${port}/ui"
 
-  local inner_width=45
-
-  box_line() {
-    local text="$1"
-    local max_len=$((inner_width - 2))
-    text="${text:0:$max_len}"
-    printf "║ %-*s ║\n" "$max_len" "$text"
-  }
-
   ui_blank
   ui_summary_begin "😼 Clash Web 控制台"
   ui_summary_row "🔓 注意放行端口" "$port"
-  ui_summary_row "💻 内网" "$lan_ui"
-  ui_summary_row "🌐 公共" "$custom_ui"
-  ui_summary_row "🌏 公网" "$public_ui"
-  ui_summary_row "🔑 密钥" "$secret"
+  [ -n "$lan_ui" ] && ui_summary_row "💻 内网" "$lan_ui"
+  [ -n "$custom_ui" ] && ui_summary_row "🌐 公共" "$custom_ui"
+  [ -n "$public_ui" ] && ui_summary_row "🌏 公网" "$public_ui"
+  [ -n "$secret" ] && ui_summary_row "🔑 密钥" "$secret"
   ui_summary_end
 }
 
