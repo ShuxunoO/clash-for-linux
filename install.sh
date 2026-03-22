@@ -405,11 +405,11 @@ ui_ok "[3/3] 启动服务..."
 # =========================
 # 输出 + 订阅录入
 # =========================
-prompt_and_apply_subscription
+
 
 secret="$(read_env_value "CLASH_SECRET")"
 public_ip="$(get_public_ip)"
 echo
 show_dashboard_info "$secret" "$public_ip"
 
-
+prompt_and_apply_subscription
