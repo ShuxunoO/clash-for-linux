@@ -182,7 +182,7 @@ validate_clash_url() {
     http://*|https://*)
       ;;
     *)
-      echo "[ERROR] CLASH_URL 格式非法：必须以 http:// 或 https:// 开头" >&2
+      write_state "failed" "url_invalid" "none"
       return 1
       ;;
   esac
