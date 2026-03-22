@@ -72,7 +72,7 @@ fail_with_state() {
   local source="${3:-none}"
 
   write_state "failed" "$reason" "$source"
-  echo "[ERROR] $message" >&2
+  ui_error "$message" >&2
   exit 1
 }
 
@@ -184,7 +184,7 @@ validate_clash_url() {
 
   if [ -z "$url" ]; then
     write_state "failed" "url_empty" "none"
-    echo "[ERROR] CLASH_URL 为空" >&2
+    ui_error "CLASH_URL 为空" >&2
     return 1
   fi
 
@@ -193,20 +193,20 @@ validate_clash_url() {
       ;;
     *)
       write_state "failed" "url_invalid" "none"
-      echo "[ERROR] CLASH_URL 格式非法：必须以 http:// 或 https:// 开头" >&2
+      ui_error "CLASH_URL 格式非法：必须以 http:// 或 https:// 开头" >&2
       return 1
       ;;
   esac
 
   if [[ "$url" =~ [[:space:]] ]]; then
     write_state "failed" "url_whitespace" "none"
-    echo "[ERROR] CLASH_URL 含有空白字符" >&2
+    ui_error "CLASH_URL 含有空白字符" >&2
     return 1
   fi
 
   if [[ "$url" == "-"* ]]; then
     write_state "failed" "url_like_option" "none"
-    echo "[ERROR] CLASH_URL 非法：看起来像 curl 参数而不是链接" >&2
+    ui_error "CLASH_URL 非法：看起来像 curl 参数而不是链接" >&2
     return 1
   fi
 
@@ -307,7 +307,7 @@ main() {
 
   if ! download_subscription; then
     write_state "failed" "download_failed" "none"
-    echo "[ERROR] 下载订阅失败" >&2
+    ui_error "下载订阅失败" >&2
     exit 1
   fi
 

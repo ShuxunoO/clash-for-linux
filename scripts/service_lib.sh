@@ -121,7 +121,7 @@ start_via_script() {
   cleanup_dead_pid
 
   if is_script_running; then
-    echo "[INFO] clash already running (script)"
+    ui_info "clash already running (script)"
     return 0
   fi
 
@@ -133,7 +133,7 @@ stop_via_script() {
   pid="$(read_pid 2>/dev/null || true)"
 
   if [ -n "${pid:-}" ] && is_pid_running "$pid"; then
-    echo "[INFO] stopping clash pid=$pid"
+    ui_info "stopping clash pid=$pid"
 
     kill "$pid" 2>/dev/null || true
 

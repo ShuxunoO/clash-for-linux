@@ -38,7 +38,7 @@ resolve_project_dir() {
     fi
   done
 
-  echo "[ERROR] 无法定位项目目录" >&2
+  ui_error "无法定位项目目录" >&2
   exit 1
 }
 
@@ -429,7 +429,7 @@ safe_regenerate_config() {
   LAST_CONFIG_REASON=""
   LAST_CONFIG_HINT=""
 
-  echo "[INFO] 正在重新生成配置 ..."
+  ui_info "正在重新生成配置 ..."
   if bash "$PROJECT_DIR/scripts/generate_config.sh" >/dev/null 2>&1; then
     return 0
   fi
@@ -483,26 +483,26 @@ cmd_update() {
 
     dirty="$(git -C "$PROJECT_DIR" status --porcelain --untracked-files=no)"
     if [ -n "${dirty:-}" ]; then
-      echo "[WARN] 检测到本地已修改但未提交的文件，自动切换到安全强制更新模式"
+      ui_warn "检测到本地已修改但未提交的文件，自动切换到安全强制更新模式"
       pull_ok=0
     fi
 
     if [ "$pull_ok" -eq 1 ]; then
-      echo "[INFO] 正在从 ${remote_name}/${branch} 拉取最新代码 ..."
+      ui_info "正在从 ${remote_name}/${branch} 拉取最新代码 ..."
       if ! git -C "$PROJECT_DIR" pull --ff-only "$remote_name" "$branch"; then
-        echo "[WARN] git pull 失败，自动切换到强制更新模式"
+        ui_warn "git pull 失败，自动切换到强制更新模式"
         pull_ok=0
       fi
     fi
 
     if [ "$pull_ok" -eq 0 ]; then
-      echo "[INFO] 正在获取 ${remote_name}/${branch} 最新代码 ..."
+      ui_info "正在获取 ${remote_name}/${branch} 最新代码 ..."
       if ! git -C "$PROJECT_DIR" fetch "$remote_name" "$branch"; then
         err "git fetch 失败"
         exit 1
       fi
 
-      echo "[WARN] 正在重置本地代码到 ${remote_name}/${branch}"
+      ui_warn "正在重置本地代码到 ${remote_name}/${branch}"
       if ! git -C "$PROJECT_DIR" reset --hard "${remote_name}/${branch}"; then
         err "git reset --hard 失败"
         exit 1
@@ -515,13 +515,13 @@ cmd_update() {
 
     hash -r
 
-    echo "[INFO] 已更新到最新代码，正在切换到新版本继续执行..."
+    ui_info "已更新到最新代码，正在切换到新版本继续执行..."
     exec "$PROJECT_DIR/clashctl" update --resume-after-self-update
   fi
 
   # ===== 从这里开始，一定是新版本脚本在执行 =====
 
-  echo "[INFO] 修复执行权限中..."
+  ui_info "修复执行权限中..."
   chmod +x "$PROJECT_DIR/clashctl" 2>/dev/null || true
   chmod +x "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
   chmod +x "$PROJECT_DIR"/bin/* 2>/dev/null || true
@@ -539,7 +539,7 @@ cmd_update() {
     exit 1
   fi
 
-  echo "[INFO] 正在重启服务 ..."
+  echo "正在重启服务 ..."
   if has_systemd; then
     if ! systemctl restart clash-for-linux.service; then
       err "systemd 重启失败"
@@ -598,11 +598,11 @@ cmd_update_force() {
   mkdir -p "$PROJECT_DIR/runtime"
 
   if [ -f "$env_file" ]; then
-    echo "[INFO] 正在备份本地环境变量覆盖项 ..."
+    ui_info "正在备份本地环境变量覆盖项 ..."
     backup_local_env_overrides "$env_file" "$backup_file"
   fi
 
-  echo "[WARN] 强制更新：本地代码修改将被覆盖"
+  ui_warn "强制更新：本地代码修改将被覆盖"
   git -C "$PROJECT_DIR" fetch "$remote_name" "$branch" || {
     err "git fetch 失败"
     exit 1
@@ -614,11 +614,11 @@ cmd_update_force() {
   }
 
   if [ -f "$env_file" ] && [ -f "$backup_file" ]; then
-    echo "[INFO] 正在恢复本地环境变量 ..."
+    ui_info "正在恢复本地环境变量 ..."
     restore_local_env_overrides "$env_file" "$backup_file"
   fi
 
-  echo "[INFO] 修复执行权限中..."
+  ui_info "修复执行权限中..."
   chmod +x "$PROJECT_DIR"/clashctl 2>/dev/null || true
   chmod +x "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
   chmod +x "$PROJECT_DIR"/bin/* 2>/dev/null || true
@@ -637,7 +637,7 @@ cmd_update_force() {
     exit 1
   fi
 
-  echo "[INFO] 正在重启服务 ..."
+  ui_info "正在重启服务 ..."
   if has_systemd; then
     systemctl restart clash-for-linux.service || {
       err "systemd 重启失败"
@@ -731,23 +731,23 @@ wait_for_systemd_active() {
 }
 
 cmd_restart() {
-  echo "[INFO] 正在停止 Clash ..."
+  ui_info "正在停止 Clash ..."
   cmd_stop "${1:-false}" || true
   sleep 1
 
-  echo "[INFO] 正在重新生成配置 ..."
+  ui_info "正在重新生成配置 ..."
   if ! cmd_generate; then
     return 1
   fi
 
-  echo "[INFO] 正在启动 Clash ..."
+  ui_info "正在启动 Clash ..."
   if ! cmd_start; then
     err "启动失败"
     return 1
   fi
 
   if has_systemd; then
-    echo "[INFO] 正在等待服务启动完成 ..."
+    ui_info "正在等待服务启动完成 ..."
     if wait_for_systemd_active; then
       ui_ok "重启完成"
       return 0
@@ -1107,13 +1107,13 @@ cmd_doctor() {
 
   ui_header "clashctl 诊断"
 
-  ui_step "[检查] 基础信息"
+  ui_info "基础信息"
   ui_info "项目路径：$PROJECT_DIR"
   ui_info "运行模式：$mode"
   ui_info "配置文件：$RUNTIME_CONFIG"
 
   ui_blank
-  ui_step "[检查] 运行配置"
+  ui_info "[检查] 运行配置"
   if [ -s "$RUNTIME_CONFIG" ]; then
     ui_ok "运行配置文件存在"
   else
@@ -1131,7 +1131,7 @@ cmd_doctor() {
   fi
 
   ui_blank
-  ui_step "[检查] 状态文件"
+  ui_info "状态文件"
   if [ -f "$STATE_FILE" ]; then
     ui_ok "状态文件存在"
 
@@ -1157,7 +1157,7 @@ cmd_doctor() {
   fi
 
   ui_blank
-  ui_step "[检查] 服务运行"
+  ui_info "服务运行"
   case "$mode" in
     systemd)
       if systemctl is-active --quiet "$SERVICE_NAME"; then
@@ -1192,7 +1192,7 @@ cmd_doctor() {
   esac
 
   ui_blank
-  ui_step "[检查] 控制面板"
+  ui_info "控制面板"
   dashboard_url="$(cmd_ui --raw 2>/dev/null || echo "-")"
   controller="$(read_runtime_config_value "external-controller" || echo "-")"
   dashboard_port="$(port_from_controller || echo "-")"
@@ -1212,7 +1212,7 @@ cmd_doctor() {
   fi
 
   ui_blank
-  ui_step "[检查] 端口监听"
+  ui_info "端口监听"
   http_port="$(http_port_from_config || echo "-")"
   if [ "$http_port" != "-" ]; then
     if check_port_listening "$http_port"; then
@@ -1261,7 +1261,7 @@ cmd_doctor() {
   fi
 
   ui_blank
-  ui_step "[检查] 面板访问"
+  ui_info "面板访问"
   if [ "$dashboard_url" != "-" ]; then
     if check_dashboard_http "$dashboard_url"; then
       ui_ok "面板访问正常"
@@ -1278,7 +1278,7 @@ cmd_doctor() {
   fi
 
   ui_blank
-  ui_step "[检查] 其他组件"
+  ui_info "其他组件"
   secret="$(read_runtime_config_value "secret" || true)"
   if [ -n "${secret:-}" ]; then
     ui_ok "已配置 Web 密钥"

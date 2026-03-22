@@ -20,19 +20,19 @@ for arg in "$@"; do
     --foreground) FOREGROUND=true ;;
     --daemon) DAEMON=true ;;
     *)
-      echo "[ERROR] 未知参数: $arg" >&2
+      ui_error "未知参数: $arg" >&2
       exit 2
       ;;
   esac
 done
 
 if [ "$FOREGROUND" = true ] && [ "$DAEMON" = true ]; then
-  echo "[ERROR] 不能同时使用 --foreground 和 --daemon" >&2
+  ui_error "不能同时使用 --foreground 和 --daemon" >&2
   exit 2
 fi
 
 if [ "$FOREGROUND" = false ] && [ "$DAEMON" = false ]; then
-  echo "[ERROR] 必须指定 --foreground 或 --daemon" >&2
+  ui_error "必须指定 --foreground 或 --daemon" >&2
   exit 2
 fi
 
@@ -40,12 +40,12 @@ fi
 # 基础校验
 # =========================
 if [ ! -s "$CONFIG_FILE" ]; then
-  echo "[错ERROR误] 未找到运行配置文件: $CONFIG_FILE" >&2
+  ui_error "未找到运行配置文件: $CONFIG_FILE" >&2
   exit 2
 fi
 
 if grep -q '\${' "$CONFIG_FILE"; then
-  echo "[ERROR] 配置文件存在未替换变量: $CONFIG_FILE" >&2
+  ui_error "配置文件存在未替换变量: $CONFIG_FILE" >&2
   exit 2
 fi
 
@@ -65,7 +65,7 @@ source "$PROJECT_DIR/scripts/service_lib.sh"
 CLASH_BIN="$(resolve_clash_bin "$PROJECT_DIR" "${CpuArch:-}")"
 
 if [ ! -x "$CLASH_BIN" ]; then
-  echo "[ERROR] Clash 二进制不可执行: $CLASH_BIN" >&2
+  ui_error "Clash 二进制不可执行: $CLASH_BIN" >&2
   exit 2
 fi
 
@@ -73,7 +73,7 @@ fi
 # 配置校验（仅执行一次）
 # =========================
 if ! "$CLASH_BIN" -t -f "$CONFIG_FILE" -d "$RUNTIME_DIR" >/dev/null 2>&1; then
-  echo "[ERROR] Clash 配置校验失败: $CONFIG_FILE" >&2
+  ui_error "Clash 配置校验失败: $CONFIG_FILE" >&2
   write_run_state "failed" "config-test"
   exit 2
 fi
@@ -93,7 +93,7 @@ cleanup_dead_pid
 
 if is_script_running; then
   pid="$(read_pid 2>/dev/null || true)"
-  echo "[INFO] Clash 已在运行，pid=${pid:-未知}"
+  ui_info "Clash 已在运行，pid=${pid:-未知}"
   exit 0
 fi
 

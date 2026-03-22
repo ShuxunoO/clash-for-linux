@@ -206,11 +206,6 @@ ui_subheader() {
   _ui_section_title "$text"
 }
 
-ui_step() {
-  local text="$1"
-  printf '%b%s%b\n' "$C_BOLD" "$text" "$C_RESET"
-}
-
 ui_info() {
   printf '%b %s\n' "$TAG_INFO" "$*"
 }

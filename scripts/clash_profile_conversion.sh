@@ -29,7 +29,7 @@ SUB_URL="${CLASH_URL:-}"               # 原始订阅 URL（.env 中 export CLAS
 
 # 0) 输入文件不存在则跳过
 if [ ! -s "$IN_FILE" ]; then
-  echo "[WARN] 未找到输入文件: $IN_FILE"
+  ui_warn "未找到输入文件: $IN_FILE"
   exit 0
 fi
 
@@ -37,19 +37,19 @@ fi
 #    （包含 proxies / proxy-providers / rules / port 等任一关键字即可视为完整配置）
 if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:|rules:|dns:)' "$IN_FILE"; then
   cp -f "$IN_FILE" "$OUT_FILE"
-  echo "[OK] 输入内容已是 Clash 配置，直接使用 -> $OUT_FILE"
+  ui_ok "输入内容已是 Clash 配置，直接使用 -> $OUT_FILE"
   exit 0
 fi
 
 # 2) subconverter 不可用则跳过
 if [ "${SUBCONVERTER_READY:-false}" != "true" ] || [ -z "${SUBCONVERTER_URL:-}" ]; then
-  echo "[WARN] subconverter 未就绪，跳过转换"
+  ui_warn "subconverter 未就绪，跳过转换"
   exit 0
 fi
 
 # 3) 没有原始 URL 则不转换（subconverter 最稳妥的方式是 url=... 拉取）
 if [ -z "${SUB_URL:-}" ]; then
-  echo "[WARN] CLASH_URL 为空，无法通过 /sub 转换，已跳过"
+  ui_warn "CLASH_URL 为空，无法通过 /sub 转换，已跳过"
   exit 0
 fi
 
@@ -67,12 +67,12 @@ rc=$?
 set -e
 
 if [ "$rc" -ne 0 ] || [ ! -s "$TMP_OUT" ]; then
-  echo "[WARN] 转换失败（rc=${rc}），已跳过"
+  ui_warn "转换失败（rc=${rc}），已跳过"
   rm -f "$TMP_OUT" 2>/dev/null || true
   exit 0
 fi
 
 mv -f "$TMP_OUT" "$OUT_FILE"
-echo "[OK] 已通过 subconverter 完成转换 -> ${OUT_FILE} (target=${SUB_TARGET})"
+ui_ok "已通过 subconverter 完成转换 -> ${OUT_FILE} (target=${SUB_TARGET})"
 
 true

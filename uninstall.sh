@@ -16,7 +16,7 @@ for arg in "$@"; do
       PURGE=true
       ;;
     *)
-      echo "[ERROR] 未知参数: $arg" >&2
+      ui_error "未知参数: $arg" >&2
       echo "用法: uninstall.sh [--purge]" >&2
       exit 2
       ;;
@@ -33,7 +33,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-echo "[INFO] 正在卸载 clash-for-linux..."
+ui_info "正在卸载 clash-for-linux..."
 
 # =========================
 # 停止服务
@@ -52,12 +52,12 @@ if [ -f "$PID_FILE" ]; then
   PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 
   if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then
-    echo "[INFO] 正在停止进程 pid=$PID"
+    ui_info "正在停止进程 pid=$PID"
     kill "$PID" 2>/dev/null || true
     sleep 1
 
     if kill -0 "$PID" 2>/dev/null; then
-      echo "[WARN] 强制结束进程 -9 $PID"
+      ui_warn "强制结束进程 -9 $PID"
       kill -9 "$PID" 2>/dev/null || true
     fi
   fi

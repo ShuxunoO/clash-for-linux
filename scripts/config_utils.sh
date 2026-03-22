@@ -123,7 +123,7 @@ apply_mixin_config() {
 				echo "# ---- mixin: ${path} ----"
 				cat "$path"
 			else
-				echo "[WARN] Mixin not found: $path" >&2
+				ui_warn "Mixin not found: $path" >&2
 			fi
 		done
 

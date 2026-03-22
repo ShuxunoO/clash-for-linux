@@ -15,7 +15,7 @@ Service_Group="root"
 # =========================
 ui_header "clashctl 安装"
 
-ui_step "[1/5] 环境检查"
+ui_info "[1/5] 环境检查"
 
 if [ "$(id -u)" -ne 0 ]; then
   die "需要 root 权限"
@@ -34,7 +34,7 @@ ui_ok "已检测到 .env 配置文件"
 # 同步文件
 # =========================
 ui_blank
-ui_step "[2/5] 初始化目录"
+ui_info "[2/5] 初始化目录"
 
 mkdir -p "$Install_Dir"
 ui_ok "安装目录已就绪: $Install_Dir"
@@ -60,7 +60,7 @@ ui_ok "mixin 目录已创建"
 # =========================
 # shellcheck disable=SC1090
 ui_blank
-ui_step "[3/5] 加载配置"
+ui_info "[3/5] 加载配置"
 
 source "$Install_Dir/.env"
 
@@ -75,7 +75,7 @@ ui_ok "CPU 架构识别成功: ${CpuArch:-unknown}"
 source "$Install_Dir/scripts/resolve_clash.sh"
 
 ui_blank
-ui_step "[4/5] 准备内核"
+ui_info "[4/5] 准备内核"
 
 if ! bash "$Install_Dir/scripts/resolve_clash.sh"; then
   ui_error "Clash 内核准备失败"
@@ -257,8 +257,8 @@ chmod +x "$Install_Dir/clashctl"
 
 # 如果存在旧版本，打印提示
 if [ -n "$OLD_CLASHCTL_REAL" ] && [ "$OLD_CLASHCTL_REAL" != "$(readlink -f "$Install_Dir/clashctl")" ]; then
-  echo "[WARN] 检测到旧版本 clashctl: $OLD_CLASHCTL_REAL"
-  echo "[INFO] 将覆盖为当前版本: $Install_Dir/clashctl"
+  ui_warn "检测到旧版本 clashctl: $OLD_CLASHCTL_REAL"
+  ui_info "将覆盖为当前版本: $Install_Dir/clashctl"
 fi
 
 # ===== 安装/覆盖 clashctl 命令 =====
@@ -282,11 +282,11 @@ NEW_REAL="$(readlink -f /usr/local/bin/clashctl 2>/dev/null || true)"
 EXPECT_REAL="$(readlink -f "$Install_Dir/clashctl" 2>/dev/null || true)"
 
 if [ "$NEW_REAL" != "$EXPECT_REAL" ]; then
-  echo "[ERROR] clashctl 安装失败" >&2
+  ui_error "clashctl 安装失败" >&2
   exit 1
 fi
 
-echo "[OK] clashctl 已更新"
+ui_ok "clashctl 已更新"
 
 # 清理 shell 缓存（非常关键）
 hash -r
@@ -296,11 +296,11 @@ NEW_CLASHCTL_REAL="$(readlink -f /usr/local/bin/clashctl 2>/dev/null || true)"
 EXPECTED_CLASHCTL_REAL="$(readlink -f "$Install_Dir/clashctl" 2>/dev/null || true)"
 
 if [ "$NEW_CLASHCTL_REAL" != "$EXPECTED_CLASHCTL_REAL" ]; then
-  echo "[ERROR] clashctl 安装失败：系统命令未指向当前安装目录" >&2
+  ui_error "clashctl 安装失败：系统命令未指向当前安装目录" >&2
   exit 1
 fi
 
-echo "[OK] clashctl 已更新: /usr/local/bin/clashctl → $EXPECTED_CLASHCTL_REAL"
+ui_ok "clashctl 已更新: /usr/local/bin/clashctl → $EXPECTED_CLASHCTL_REAL"
 
 chmod +x "$Install_Dir/clashctl"
 
@@ -349,14 +349,14 @@ proxy_on() {
   export ALL_PROXY="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
   export no_proxy="127.0.0.1,localhost,::1"
   export NO_PROXY="127.0.0.1,localhost,::1"
-  echo "[OK] 已开启代理"
+  ui_ok "已开启代理"
 }
 
 # 关闭代理
 proxy_off() {
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
   unset all_proxy ALL_PROXY no_proxy NO_PROXY
-  echo "[OK] 已关闭代理"
+  ui_ok "已关闭代理"
 }
 EOF
 

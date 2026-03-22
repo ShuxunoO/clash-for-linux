@@ -13,7 +13,7 @@ LOG_DIR="$PROJECT_DIR/logs"
 CONFIG_DIR="$PROJECT_DIR/config"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "[ERROR] 安装 systemd 服务需要 root 权限" >&2
+  ui_error "安装 systemd 服务需要 root 权限" >&2
   exit 1
 fi
 
@@ -61,7 +61,7 @@ EOF
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
 
-echo "[OK] systemd unit installed: ${UNIT_PATH}"
+ui_ok "systemd unit installed: ${UNIT_PATH}"
 echo "start   : systemctl start ${SERVICE_NAME}.service"
 echo "stop    : systemctl stop ${SERVICE_NAME}.service"
 echo "restart : systemctl restart ${SERVICE_NAME}.service"
