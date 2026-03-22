@@ -1,7 +1,11 @@
 #!/bin/bash
 # 作用：获取当前 Linux 系统的 CPU 架构信息，并输出到标准输出
-# shellcheck source=scripts/ui.sh
-source "$PROJECT_DIR/scripts/ui.sh"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v ui_info >/dev/null 2>&1; then
+  # shellcheck source=scripts/ui.sh
+  source "$SCRIPT_DIR/ui.sh"
+fi
 
 exitWithError() {
     local errorMessage="$1"
