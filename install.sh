@@ -429,8 +429,10 @@ ui_ok "[3/3] 启动服务..."
 # =========================
 
 
+secret="$(read_env_value "CLASH_SECRET")"
+public_ip="$(get_public_ip)"
 echo
-show_dashboard_info
+show_dashboard_info "$secret" "$public_ip"
 
 show_install_usage
 
