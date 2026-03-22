@@ -128,8 +128,11 @@ _ui_display_width() {
   python3 - "$1" <<'PY'
 import sys
 import unicodedata
+import re
 
-s = sys.argv[1]
+# 去掉 ANSI 颜色控制符
+s = re.sub(r'\x1b\[[0-9;]*m', '', sys.argv[1])
+
 w = 0
 for ch in s:
     if unicodedata.combining(ch):
@@ -139,6 +142,7 @@ for ch in s:
         w += 2
     else:
         w += 1
+
 print(w)
 PY
 }
