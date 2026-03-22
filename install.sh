@@ -114,7 +114,37 @@ get_public_ip() {
     || true
 }
 
+show_install_usage() {
+  cat <<'EOF'
+
+用法:
+  clashctl 命令 [选项]
+
+指令:
+  on                     开启代理
+  off                    关闭代理
+  start                  启动 Clash
+  stop                   停止 Clash
+  restart                重启并自动应用当前配置
+  status                 查看当前状态
+  update                 更新到最新版本并自动应用配置
+  mode                   查看当前运行模式（systemd/script/none）
+  ui                     输出 Dashboard 地址
+  secret                 输出当前 secret
+  doctor                 健康检查
+  logs [-f] [-n 100]     查看日志
+  sub show|update        查看订阅地址 / 输入或更新订阅并立即生效
+  tun status|on|off      查看/启用/关闭 Tun
+  mixin status|on|off    查看/启用/关闭 Mixin
+
+选项:
+  --from-systemd         内部使用，避免 stop 递归调用 systemctl
+  -h, --help             显示帮助信息
+EOF
+}
+
 show_dashboard_info() {
+
   local secret="$1"
   local public_ip="$2"
 
@@ -122,40 +152,46 @@ show_dashboard_info() {
   local host="${controller_addr%:*}"
   local port="${controller_addr##*:}"
 
+  local lan_ip=""
+  lan_ip="$(get_lan_ip)"
+
   local local_ui="http://127.0.0.1:${port}/ui"
+  local lan_ui=""
   local public_ui=""
+  local custom_ui="${CLASH_DASHBOARD_PUBLIC_URL:-}"
+
+  if [ -n "${lan_ip:-}" ]; then
+    lan_ui="http://${lan_ip}:${port}/ui"
+  fi
 
   if [ -n "${public_ip:-}" ]; then
     public_ui="http://${public_ip}:${port}/ui"
   fi
 
-  ui_blank
-  ui_summary_begin "😼 Web 控制台"
+  echo "╔═══════════════════════════════════════════════╗"
+  echo "║                😼 Web 控制台                  ║"
+  echo "║═══════════════════════════════════════════════║"
+  echo "║                                               ║"
+  printf "║     🔓 注意放行端口：%-24s║\n" "$port"
 
-  ui_summary_row "Control" "${host}:${port}"
-  ui_summary_row "Local UI" "$local_ui"
+  if [ -n "$lan_ui" ]; then
+    printf "║     🏠 内网：%-31s║\n" "$lan_ui"
+  fi
 
   if [ -n "$public_ui" ] && [ "$host" = "0.0.0.0" ]; then
-    ui_summary_row "Public UI" "$public_ui"
+    printf "║     🌏 公网：%-31s║\n" "$public_ui"
   fi
 
-  ui_summary_end
-
-  ui_blank
-  ui_subheader "🔑 当前密钥："
-  printf '  %s\n' "$secret"
-
-  # 安全提示（非常关键）
-  if [ "$host" = "0.0.0.0" ]; then
-    ui_security_block \
-      "面板已暴露到公网" \
-      "建议通过防火墙限制访问" \
-      "避免直接开放给所有来源"
-  else
-    ui_security_block \
-      "面板默认仅本机可访问" \
-      "未开启公网访问"
+  if [ -n "$custom_ui" ]; then
+    printf "║     ☁️  公共：%-31s║\n" "$custom_ui"
   fi
+
+  printf "║     💻 本机：%-31s║\n" "$local_ui"
+  echo "║                                               ║"
+  echo "╚═══════════════════════════════════════════════╝"
+  echo
+  echo "😼 当前密钥：$secret"
+  echo "🎉 enjoy 🎉"
 }
 
 wait_dashboard_ready() {
@@ -219,10 +255,9 @@ prompt_and_apply_subscription() {
     ui_ok "订阅添加成功：[1] $sub_url"
     ui_ok "订阅已生效"
 
-    secret="$(read_env_value "CLASH_SECRET")"
-    public_ip="$(get_public_ip)"
 
-    show_dashboard_info "$secret" "$public_ip"
+
+    # show_dashboard_info "$secret" "$public_ip"
     return 0
   done
 }
@@ -391,23 +426,10 @@ fi
 
 ui_ok "[3/3] 启动服务..."
 
+secret="$(read_env_value "CLASH_SECRET")"
+public_ip="$(get_public_ip)"
 echo
-echo "命令:"
-echo "  clashctl status"
-echo "  clashctl logs"
-echo "  clashctl restart"
-echo "  clashctl stop"
-echo "  clashctl ui"
-echo "  clashctl secret"
-
-ui_blank
-ui_summary_begin "安装信息"
-ui_summary_row "安装状态" "已完成"
-ui_summary_row "安装路径" "$Install_Dir"
-ui_summary_row "命令路径" "/usr/local/bin/clashctl"
-ui_summary_row "运行模式" "systemd"
-ui_summary_end
-
+show_dashboard_info "$secret" "$public_ip"
 # =========================
 # 输出 + 订阅录入
 # =========================
