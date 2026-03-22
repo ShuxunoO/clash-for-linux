@@ -26,7 +26,14 @@ else
 fi
 
 # ---------- unicode / ascii fallback ----------
-if [ "${CLASHCTL_ASCII:-0}" = "1" ]; then
+_ui_is_utf8() {
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf8*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "${CLASHCTL_ASCII:-0}" = "1" ] || ! _ui_is_utf8; then
   ICON_OK="OK"
   ICON_WARN="!!"
   ICON_ERR="XX"
