@@ -208,19 +208,19 @@ main() {
       exit 0
     fi
 
-    echo "[错误] 已关闭自动更新，且运行配置缺失: $RUNTIME_CONFIG" >&2
+    echo "[ERROR] 已关闭自动更新，且运行配置缺失: $RUNTIME_CONFIG" >&2
     write_state "failed" "runtime_missing" "none"
     exit 1
   fi
 
   if [ -z "${CLASH_URL:-}" ]; then
-    echo "[错误] 未设置 CLASH_URL" >&2
+    echo "[ERROR] 未设置 CLASH_URL" >&2
     write_state "failed" "url_missing" "none"
     exit 1
   fi
 
   if ! download_subscription; then
-    echo "[错误] 下载订阅失败" >&2
+    echo "[ERROR] 下载订阅失败" >&2
     write_state "failed" "download_failed" "none"
     exit 1
   fi
@@ -237,7 +237,7 @@ main() {
   fi
 
   if [ ! -s "$template_file" ]; then
-    echo "[错误] 缺少模板配置文件: $template_file" >&2
+    echo "[ERROR] 缺少模板配置文件: $template_file" >&2
     write_state "failed" "missing_template" "none"
     exit 1
   fi
