@@ -2,7 +2,13 @@
 
 # ============================================
 # clashctl UI library (scripts/ui.sh)
+# 用户优先版：清晰、稳健、兼容、可读
 # ============================================
+
+# ---------- env ----------
+: "${CLASHCTL_ASCII:=0}"
+: "${UI_WIDTH:=0}"
+: "${UI_SUMMARY_KEY_WIDTH:=12}"
 
 # ---------- color ----------
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -33,11 +39,15 @@ _ui_is_utf8() {
   esac
 }
 
-if [ "${CLASHCTL_ASCII:-0}" = "1" ] || ! _ui_is_utf8; then
+if [ "$CLASHCTL_ASCII" = "1" ] || ! _ui_is_utf8; then
+  UI_ASCII=1
+
+  ICON_INFO="i"
   ICON_OK="OK"
   ICON_WARN="!!"
   ICON_ERR="XX"
-  ICON_INFO="i"
+  ICON_ARROW=">"
+  ICON_DOT="-"
 
   BOX_TL="+"
   BOX_TR="+"
@@ -48,10 +58,14 @@ if [ "${CLASHCTL_ASCII:-0}" = "1" ] || ! _ui_is_utf8; then
   BOX_JL="+"
   BOX_JR="+"
 else
+  UI_ASCII=0
+
+  ICON_INFO="ℹ"
   ICON_OK="✔"
   ICON_WARN="⚠"
   ICON_ERR="✖"
-  ICON_INFO="ℹ"
+  ICON_ARROW="→"
+  ICON_DOT="•"
 
   BOX_TL="╔"
   BOX_TR="╗"
@@ -63,42 +77,94 @@ else
   BOX_JR="╣"
 fi
 
-TAG_INFO="${C_BLUE}ℹ${C_RESET}"
-TAG_OK="${C_GREEN}✔${C_RESET}"
-TAG_WARN="${C_YELLOW}⚠${C_RESET}"
-TAG_ERR="${C_RED}✖${C_RESET}"
+TAG_INFO="${C_BLUE}${ICON_INFO}${C_RESET}"
+TAG_OK="${C_GREEN}${ICON_OK}${C_RESET}"
+TAG_WARN="${C_YELLOW}${ICON_WARN}${C_RESET}"
+TAG_ERR="${C_RED}${ICON_ERR}${C_RESET}"
 
-UI_WIDTH="${UI_WIDTH:-60}"
-UI_SUMMARY_KEY_WIDTH="${UI_SUMMARY_KEY_WIDTH:-12}"
+# ---------- width ----------
+_ui_term_width() {
+  local cols=""
+  if command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+
+  if [ -z "${cols:-}" ] && [ -n "${COLUMNS:-}" ]; then
+    cols="$COLUMNS"
+  fi
+
+  if [ -z "${cols:-}" ] || ! [ "$cols" -gt 0 ] 2>/dev/null; then
+    cols=80
+  fi
+
+  printf '%s\n' "$cols"
+}
+
+_ui_resolve_width() {
+  local cols width
+  cols="$(_ui_term_width)"
+
+  if [ "${UI_WIDTH:-0}" -gt 0 ] 2>/dev/null; then
+    width="$UI_WIDTH"
+  else
+    width=$((cols - 2))
+  fi
+
+  # 最小 56，最大 88，避免过窄/过宽
+  [ "$width" -lt 56 ] && width=56
+  [ "$width" -gt 88 ] && width=88
+
+  printf '%s\n' "$width"
+}
+
+_ui_get_width() {
+  printf '%s\n' "$(_ui_resolve_width)"
+}
+
+_ui_summary_inner_width() {
+  echo $(( $(_ui_get_width) - 2 ))
+}
 
 # ---------- helpers ----------
 ui_repeat() {
   local ch="$1"
   local n="$2"
-  printf '%*s' "$n" '' | tr ' ' "$ch"
-}
 
-ui_line() {
-  ui_repeat "-" "$UI_WIDTH"
-  printf '\n'
+  [ "$n" -le 0 ] && return 0
+  printf '%*s' "$n" '' | tr ' ' "$ch"
 }
 
 ui_blank() {
   printf '\n'
 }
 
+ui_line() {
+  local width
+  width="$(_ui_get_width)"
+  ui_repeat "-" "$width"
+  printf '\n'
+}
+
+_ui_section_title() {
+  local text="$1"
+  printf '%b%s%b\n' "$C_BOLD" "$text" "$C_RESET"
+}
+
 ui_header() {
   local title="$1"
-  ui_repeat "=" "$UI_WIDTH"
+  local width
+  width="$(_ui_get_width)"
+
+  ui_repeat "=" "$width"
   printf '\n'
   printf ' %b%s%b\n' "$C_BOLD" "$title" "$C_RESET"
-  ui_repeat "=" "$UI_WIDTH"
+  ui_repeat "=" "$width"
   printf '\n'
 }
 
 ui_subheader() {
   local text="$1"
-  printf '%b%s%b\n' "$C_BOLD" "$text" "$C_RESET"
+  _ui_section_title "$text"
 }
 
 ui_step() {
@@ -128,22 +194,47 @@ ui_kv() {
   printf '  %-14s : %s\n' "$key" "$value"
 }
 
-# ---------- summary box ----------
-_ui_summary_inner_width() {
-  echo $((UI_WIDTH - 2))
+# ---------- text wrap ----------
+_ui_wrap_print() {
+  local indent="$1"
+  local width="$2"
+  local text="$3"
+  local avail rest chunk
+
+  [ -z "$text" ] && {
+    printf '%s\n' "$indent"
+    return 0
+  }
+
+  avail=$((width - ${#indent}))
+  [ "$avail" -le 8 ] && avail=8
+
+  rest="$text"
+  while [ -n "$rest" ]; do
+    if [ "${#rest}" -le "$avail" ]; then
+      printf '%s%s\n' "$indent" "$rest"
+      break
+    fi
+
+    chunk="${rest:0:$avail}"
+    printf '%s%s\n' "$indent" "$chunk"
+    rest="${rest:$avail}"
+  done
 }
 
+# ---------- summary box ----------
 ui_summary_begin() {
-  local title="${1:-Summary}"
-  local inner width
+  local title="${1:-摘要}"
+  local inner box_width
+
   inner="$(_ui_summary_inner_width)"
-  width=$((inner - 2))
+  box_width=$((inner - 2))
 
   printf '%s' "$BOX_TL"
   ui_repeat "$BOX_H" "$inner"
   printf '%s\n' "$BOX_TR"
 
-  printf '%s %-*s %s\n' "$BOX_V" "$width" "$title" "$BOX_V"
+  printf '%s %-*s %s\n' "$BOX_V" "$box_width" "$title" "$BOX_V"
 
   printf '%s' "$BOX_JL"
   ui_repeat "$BOX_H" "$inner"
@@ -153,7 +244,7 @@ ui_summary_begin() {
 ui_summary_row() {
   local key="$1"
   local value="$2"
-  local inner content_width prefix prefix_len rest chunk first_avail next_avail
+  local inner content_width prefix prefix_len rest chunk avail
 
   inner="$(_ui_summary_inner_width)"
   content_width=$((inner - 2))
@@ -166,28 +257,28 @@ ui_summary_row() {
     prefix_len=1
   fi
 
-  rest="$value"
-  first_avail=$((content_width - prefix_len))
-  next_avail=$((content_width - prefix_len))
+  rest="${value:-}"
+  avail=$((content_width - prefix_len))
+  [ "$avail" -le 8 ] && avail=8
 
-  if [ "${#rest}" -le "$first_avail" ]; then
+  if [ "${#rest}" -le "$avail" ]; then
     printf '%s %-*s %s\n' "$BOX_V" "$content_width" "${prefix}${rest}" "$BOX_V"
     return 0
   fi
 
-  chunk="${rest:0:$first_avail}"
+  chunk="${rest:0:$avail}"
   printf '%s %-*s %s\n' "$BOX_V" "$content_width" "${prefix}${chunk}" "$BOX_V"
-  rest="${rest:$first_avail}"
+  rest="${rest:$avail}"
 
   while [ -n "$rest" ]; do
-    if [ "${#rest}" -le "$next_avail" ]; then
+    if [ "${#rest}" -le "$avail" ]; then
       printf '%s %-*s %s\n' "$BOX_V" "$content_width" "$(printf '%*s%s' "$prefix_len" '' "$rest")" "$BOX_V"
       break
     fi
 
-    chunk="${rest:0:$next_avail}"
+    chunk="${rest:0:$avail}"
     printf '%s %-*s %s\n' "$BOX_V" "$content_width" "$(printf '%*s%s' "$prefix_len" '' "$chunk")" "$BOX_V"
-    rest="${rest:$next_avail}"
+    rest="${rest:$avail}"
   done
 }
 
@@ -202,11 +293,13 @@ ui_summary_end() {
 
 # ---------- section blocks ----------
 ui_next() {
-  ui_blank
-  ui_subheader "Next:"
   local item
+  ui_blank
+  ui_subheader "下一步"
+
   for item in "$@"; do
-    printf '  %s\n' "$item"
+    [ -z "$item" ] && continue
+    printf '  %s %s\n' "$ICON_ARROW" "$item"
   done
 }
 
@@ -215,15 +308,16 @@ ui_fix_block() {
   shift || true
 
   ui_blank
-  ui_subheader "Reason:"
+  ui_subheader "原因"
   printf '  %s\n' "$reason"
 
   if [ "$#" -gt 0 ]; then
     ui_blank
-    ui_subheader "Fix:"
+    ui_subheader "修复建议"
     local item
     for item in "$@"; do
-      printf '  - %s\n' "$item"
+      [ -z "$item" ] && continue
+      printf '  %s %s\n' "$ICON_DOT" "$item"
     done
   fi
 }
@@ -232,9 +326,10 @@ ui_debug_block() {
   [ "$#" -eq 0 ] && return 0
 
   ui_blank
-  ui_subheader "Debug:"
+  ui_subheader "调试信息"
   local item
   for item in "$@"; do
+    [ -z "$item" ] && continue
     printf '  %s\n' "$item"
   done
 }
@@ -243,10 +338,43 @@ ui_security_block() {
   [ "$#" -eq 0 ] && return 0
 
   ui_blank
-  ui_subheader "Security:"
+  ui_subheader "安全提示"
   local item
   for item in "$@"; do
-    printf '  - %s\n' "$item"
+    [ -z "$item" ] && continue
+    printf '  %s %s\n' "$ICON_DOT" "$item"
+  done
+}
+
+# ---------- optional helpers ----------
+ui_tip() {
+  local text="$1"
+  ui_info "$text"
+}
+
+ui_success_block() {
+  local title="${1:-操作成功}"
+  shift || true
+
+  ui_blank
+  ui_subheader "$title"
+  local item
+  for item in "$@"; do
+    [ -z "$item" ] && continue
+    printf '  %s %s\n' "$ICON_DOT" "$item"
+  done
+}
+
+ui_warn_block() {
+  local title="${1:-注意事项}"
+  shift || true
+
+  ui_blank
+  ui_subheader "$title"
+  local item
+  for item in "$@"; do
+    [ -z "$item" ] && continue
+    printf '  %s %s\n' "$ICON_DOT" "$item"
   done
 }
 
