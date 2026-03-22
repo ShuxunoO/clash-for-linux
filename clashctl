@@ -546,7 +546,7 @@ cmd_update() {
       exit 1
     fi
 
-    echo "[INFO] 等待服务就绪..."
+    ui_info "等待服务就绪..."
     if wait_for_systemd_active; then
       if [ "$regen_result" -eq 2 ]; then
         ok "代码已更新，当前继续使用旧配置运行"
@@ -1058,8 +1058,6 @@ cmd_status() {
   fi
 
   [ -n "${secret_value:-}" ] && secret_display="$secret_value"
-
-  ui_header "clashctl 状态"
 
   ui_summary_begin "运行与服务"
   ui_summary_row "运行模式" "$mode"
