@@ -14,12 +14,12 @@ Service_Group="root"
 # =========================
 # 基础校验
 # =========================
-ui_info "[1/5] 环境检查"
+ui_ok "[1/3] 准备环境..."
 
 if [ "$(id -u)" -ne 0 ]; then
   die "需要 root 权限"
 fi
-ui_ok "已确认 root 权限"
+# ui_ok "已确认 root 权限"
 
 if [ ! -f "${Server_Dir}/.env" ]; then
   die_with_reason \
@@ -27,13 +27,13 @@ if [ ! -f "${Server_Dir}/.env" ]; then
     "缺少文件: ${Server_Dir}/.env" \
     "请确认项目目录完整"
 fi
-ui_ok "已检测到 .env 配置文件"
+# ui_ok "已检测到 .env 配置文件"
 
 # =========================
 # 同步文件
 # =========================
 ui_blank
-ui_info "[2/5] 初始化目录"
+# ui_info "[2/5] 初始化目录"
 
 mkdir -p "$Install_Dir"
 ui_ok "安装目录已就绪: $Install_Dir"
@@ -50,16 +50,16 @@ mkdir -p \
   "$Install_Dir/logs" \
   "$Install_Dir/config/mixin.d"
 
-ui_ok "runtime 目录已创建"
-ui_ok "logs 目录已创建"
-ui_ok "mixin 目录已创建"
+# ui_ok "runtime 目录已创建"
+# ui_ok "logs 目录已创建"
+# ui_ok "mixin 目录已创建"
 
 # =========================
 # 加载 env
 # =========================
 # shellcheck disable=SC1090
 ui_blank
-ui_info "[3/5] 加载配置"
+ui_ok "[2/3] 生成配置..."
 
 source "$Install_Dir/.env"
 
@@ -74,7 +74,7 @@ ui_ok "CPU 架构识别成功: ${CpuArch:-unknown}"
 source "$Install_Dir/scripts/resolve_clash.sh"
 
 ui_blank
-ui_info "[4/5] 准备内核"
+# ui_info "准备内核"
 
 if ! bash "$Install_Dir/scripts/resolve_clash.sh"; then
   ui_error "Clash 内核准备失败"
@@ -227,6 +227,8 @@ prompt_and_apply_subscription() {
   done
 }
 
+
+
 # =========================
 # 内核检查
 # =========================
@@ -237,7 +239,7 @@ if ! resolve_clash_bin "$Install_Dir" "${CpuArch:-}" >/dev/null 2>&1; then
     "请检查下载结果或 CPU 架构是否匹配"
 fi
 
-ui_ok "Clash 内核校验通过"
+# ui_ok "Clash 内核校验通过"
 
 # =========================
 # 安装 clashctl
@@ -257,6 +259,31 @@ if [ -n "$OLD_CLASHCTL_REAL" ] && [ "$OLD_CLASHCTL_REAL" != "$(readlink -f "$Ins
   ui_warn "检测到旧版本 clashctl: $OLD_CLASHCTL_REAL"
   ui_info "将覆盖为当前版本: $Install_Dir/clashctl"
 fi
+
+cleanup_all_clashctl() {
+  local current
+  current="$(readlink -f "$Install_Dir/clashctl" 2>/dev/null || true)"
+
+  # 查找系统中所有 clashctl
+  mapfile -t found < <(command -v -a clashctl 2>/dev/null | sort -u)
+
+  for f in "${found[@]}"; do
+    real="$(readlink -f "$f" 2>/dev/null || true)"
+
+    if [ "$real" != "$current" ]; then
+      rm -f "$f" 2>/dev/null || true
+    fi
+  done
+
+  # 额外扫 root/home（补盲区）
+  for f in /root/clashctl "$HOME/clashctl"; do
+    if [ -f "$f" ]; then
+      rm -f "$f"
+    fi
+  done
+}
+
+cleanup_all_clashctl
 
 # ===== 安装/覆盖 clashctl 命令 =====
 
@@ -295,11 +322,11 @@ if [ "$NEW_CLASHCTL_REAL" != "$EXPECTED_CLASHCTL_REAL" ]; then
   exit 1
 fi
 
-ui_ok "clashctl 已更新: /usr/local/bin/clashctl → $EXPECTED_CLASHCTL_REAL"
+# ui_ok "clashctl 已更新: /usr/local/bin/clashctl → $EXPECTED_CLASHCTL_REAL"
 
 chmod +x "$Install_Dir/clashctl"
 
-ui_ok "clashctl 安装完成: /usr/local/bin/clashctl"
+# ui_ok "clashctl: /usr/local/bin/clashctl"
 
 # =========================
 # 安装 proxy helper
@@ -370,6 +397,8 @@ if command -v systemctl >/dev/null 2>&1; then
 else
   ui_warn "未找到 systemd，回退到脚本模式"
 fi
+
+ui_ok "[3/3] 启动服务..."
 
 # =========================
 # 输出 + 订阅录入
