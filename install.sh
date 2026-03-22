@@ -132,7 +132,7 @@ show_dashboard_info() {
   fi
 
   ui_blank
-  ui_summary_begin "Dashboard"
+  ui_summary_begin "😼 Web 控制台"
 
   ui_summary_row "Control" "${host}:${port}"
   ui_summary_row "Local UI" "$local_ui"
@@ -144,7 +144,7 @@ show_dashboard_info() {
   ui_summary_end
 
   ui_blank
-  ui_subheader "Secret"
+  ui_subheader "🔑 当前密钥："
   printf '  %s\n' "$secret"
 
   # 安全提示（非常关键）
