@@ -1,14 +1,16 @@
 #!/bin/bash
-# 该脚本的作用是获取Linux操作系统上运行的CPU架构信息，并将其输出到标准输出流。
+# 作用：获取当前 Linux 系统的 CPU 架构信息，并输出到标准输出
+# shellcheck source=scripts/ui.sh
+source "$PROJECT_DIR/scripts/ui.sh"
 
-function exitWithError {
+exitWithError() {
     local errorMessage="$1"
     echo -e "\033[31m[ERROR] $errorMessage\033[0m" >&2
     exit 1
 }
 
-# Function to get CPU architecture
-function get_cpu_arch {
+# 获取 CPU 架构
+get_cpu_arch() {
     local commands=("$@")
     for cmd in "${commands[@]}"; do
         local CpuArch
@@ -20,32 +22,31 @@ function get_cpu_arch {
     done
 }
 
-# Check if we are running on a supported Linux distribution
+# 判断系统发行版
 if [[ -f "/etc/os-release" ]]; then
     . /etc/os-release
     case "$ID" in
         "ubuntu"|"debian"|"linuxmint")
-            # Debian-based distributions
+            # Debian 系发行版
             CpuArch=$(get_cpu_arch "dpkg-architecture -qDEB_HOST_ARCH_CPU" "dpkg-architecture -qDEB_BUILD_ARCH_CPU" "uname -m")
             ;;
         "centos"|"fedora"|"rhel")
-            # Red Hat-based distributions
+            # Red Hat 系发行版
             CpuArch=$(get_cpu_arch "uname -m" "arch" "uname")
             ;;
         *)
-            # Unsupported Linux distribution
+            # 未明确支持的 Linux 发行版
             CpuArch=$(get_cpu_arch "uname -m" "arch" "uname")
             if [[ -z "$CpuArch" ]]; then
-                exitWithError "Failed to obtain CPU architecture"
+                exitWithError "获取 CPU 架构失败"
             fi
             ;;
     esac
 elif [[ -f "/etc/redhat-release" ]]; then
-    # Older Red Hat-based distributions
+    # 老版本 Red Hat 系
     CpuArch=$(get_cpu_arch "uname -m" "arch" "uname")
 else
-    exitWithError "Unsupported Linux distribution"
+    exitWithError "不支持的 Linux 发行版"
 fi
 
-log_info() { echo "[INFO] $*"; }
-log_info "CPU architecture: $CpuArch"
+ui_info "CPU 架构: $CpuArch"
