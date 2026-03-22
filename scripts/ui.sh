@@ -285,12 +285,12 @@ ui_summary_end() {
     local inner_width border_width
 
     # 标题长度（注意这里把左右空格也算进去）
-    len="$(_ui_display_width "   $__ui_summary_title   ")"
+    len="$(_ui_display_width "     $__ui_summary_title     ")"
     [ "$len" -gt "$max_len" ] && max_len="$len"
 
     # 行内容长度（同样把左右空格算进去）
     for line in "${__ui_summary_rows[@]}"; do
-        len="$(_ui_display_width "   $line   ")"
+        len="$(_ui_display_width "     $line     ")"
         [ "$len" -gt "$max_len" ] && max_len="$len"
     done
 
@@ -310,7 +310,7 @@ ui_summary_end() {
 
     # 标题
     printf '%s' "$BOX_V"
-    _ui_pad_center "   $__ui_summary_title   " "$border_width"
+    _ui_pad_center "     $__ui_summary_title     " "$border_width"
     printf '%s\n' "$BOX_V"
 
     # 分隔线
@@ -326,7 +326,7 @@ ui_summary_end() {
     # 内容
     for line in "${__ui_summary_rows[@]}"; do
     printf '%s' "$BOX_V"
-    _ui_pad_right "  $line  " "$border_width"
+    _ui_pad_right "    $line    " "$border_width"
     printf '%s\n' "$BOX_V"
     done
 
