@@ -68,4 +68,4 @@ EOF
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
 
-ui_ok "服务已注册，可通过 clashctl 管理"
+# ui_ok "服务已注册，可通过 clashctl 管理"
