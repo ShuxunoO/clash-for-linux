@@ -276,6 +276,10 @@ ui_ok "clashctl installed: /usr/local/bin/clashctl"
 cat >/etc/profile.d/clash-for-linux.sh <<EOF
 # clash-for-linux proxy helpers
 
+# 清理旧版遗留函数/别名，避免旧 shell 注入污染新版本
+unset -f clashctl clashhelp clashlog clashmixin clashoff clashon clashproxy clashrestart clashsecret clashstatus clashsub clashtun clashui clashupgrade 2>/dev/null || true
+unalias clashctl 2>/dev/null || true
+
 CLASH_INSTALL_DIR="${Install_Dir}"
 ENV_FILE="\${CLASH_INSTALL_DIR}/.env"
 
