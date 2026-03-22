@@ -46,17 +46,34 @@ CLASH_SOCKS_PORT="$(resolve_port_value "SOCKS" "$CLASH_SOCKS_PORT")"
 CLASH_REDIR_PORT="$(resolve_port_value "REDIR" "$CLASH_REDIR_PORT")"
 EXTERNAL_CONTROLLER="$(resolve_host_port "External Controller" "$EXTERNAL_CONTROLLER" "127.0.0.1")"
 
+trim_value() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 write_state() {
   local status="$1"
   local reason="$2"
   local source="${3:-unknown}"
 
   cat > "$STATE_FILE" <<EOF
-  LAST_GENERATE_STATUS=$status
-  LAST_GENERATE_REASON=$reason
-  LAST_CONFIG_SOURCE=$source
-  LAST_GENERATE_AT=$(date -Iseconds)
+LAST_GENERATE_STATUS=$status
+LAST_GENERATE_REASON=$reason
+LAST_CONFIG_SOURCE=$source
+LAST_GENERATE_AT=$(date -Iseconds)
 EOF
+}
+
+fail_with_state() {
+  local reason="$1"
+  local message="$2"
+  local source="${3:-none}"
+
+  write_state "failed" "$reason" "$source"
+  echo "[ERROR] $message" >&2
+  exit 1
 }
 
 write_env_value() {
@@ -146,8 +163,7 @@ apply_controller_to_config() {
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
 
     if [ ! -f "$ui_src/index.html" ]; then
-      echo "[ERROR] UI 未找到: $ui_src/index.html" >&2
-      exit 1
+      fail_with_state "ui_missing" "UI 未找到: $ui_src/index.html" "none"
     fi
 
     rm -rf "$ui_dir"
@@ -161,19 +177,13 @@ apply_controller_to_config() {
   fi
 }
 
-trim_value() {
-  local s="$1"
-  s="${s#"${s%%[![:space:]]*}"}"
-  s="${s%"${s##*[![:space:]]}"}"
-  printf '%s' "$s"
-}
-
 validate_clash_url() {
   local url="$1"
 
   url="$(trim_value "$url")"
 
   if [ -z "$url" ]; then
+    write_state "failed" "url_empty" "none"
     echo "[ERROR] CLASH_URL 为空" >&2
     return 1
   fi
@@ -183,16 +193,19 @@ validate_clash_url() {
       ;;
     *)
       write_state "failed" "url_invalid" "none"
+      echo "[ERROR] CLASH_URL 格式非法：必须以 http:// 或 https:// 开头" >&2
       return 1
       ;;
   esac
 
   if [[ "$url" =~ [[:space:]] ]]; then
+    write_state "failed" "url_whitespace" "none"
     echo "[ERROR] CLASH_URL 含有空白字符" >&2
     return 1
   fi
 
   if [[ "$url" == "-"* ]]; then
+    write_state "failed" "url_like_option" "none"
     echo "[ERROR] CLASH_URL 非法：看起来像 curl 参数而不是链接" >&2
     return 1
   fi
@@ -219,7 +232,18 @@ download_subscription() {
   )
 
   if [ "$ALLOW_INSECURE_TLS" = "true" ]; then
-    curl_cmd=(curl -fL -S --retry 2 --connect-timeout 10 -m 30 -k -o "$TMP_DOWNLOAD" -- "$url")
+    curl_cmd=(
+      curl
+      -fL
+      -S
+      --retry 2
+      --connect-timeout 10
+      -m 30
+      -k
+      -o "$TMP_DOWNLOAD"
+      --
+      "$url"
+    )
   fi
 
   if [ -n "${CLASH_HEADERS:-}" ]; then
@@ -272,22 +296,23 @@ main() {
       exit 0
     fi
 
-    echo "[ERROR] 已关闭自动更新，且运行配置缺失: $RUNTIME_CONFIG" >&2
-    write_state "failed" "runtime_missing" "none"
-    exit 1
+    fail_with_state "runtime_missing" "已关闭自动更新，且运行配置缺失: $RUNTIME_CONFIG" "none"
   fi
 
   CLASH_URL="$(trim_value "${CLASH_URL:-}")"
 
   if ! validate_clash_url "$CLASH_URL"; then
-    write_state "failed" "url_invalid" "none"
     exit 1
   fi
 
   if ! download_subscription; then
-    echo "[ERROR] 下载订阅失败" >&2
     write_state "failed" "download_failed" "none"
+    echo "[ERROR] 下载订阅失败" >&2
     exit 1
+  fi
+
+  if [ ! -s "$TMP_DOWNLOAD" ]; then
+    fail_with_state "subscription_empty" "订阅下载成功但内容为空" "none"
   fi
 
   cp -f "$TMP_DOWNLOAD" "$TMP_NORMALIZED"
@@ -301,17 +326,19 @@ main() {
     exit 0
   fi
 
+  if ! grep -qE '^[[:space:]]*proxies:' "$TMP_NORMALIZED"; then
+    fail_with_state "subscription_invalid" "订阅不可用或转换失败" "none"
+  fi
+
   if [ ! -s "$template_file" ]; then
-    echo "[ERROR] 缺少模板配置文件: $template_file" >&2
-    write_state "failed" "missing_template" "none"
-    exit 1
+    fail_with_state "missing_template" "缺少模板配置文件: $template_file" "none"
   fi
 
   build_fragment_config "$template_file" "$TMP_CONFIG"
   apply_controller_to_config "$TMP_CONFIG"
   apply_secret_to_config "$TMP_CONFIG"
-
   finalize_config "$TMP_CONFIG"
+
   write_state "success" "subscription_fragment_merged" "subscription_fragment"
 }
 
