@@ -54,4 +54,4 @@ else
     exitWithError "不支持的 Linux 发行版"
 fi
 
-ui_info "CPU 架构: $CpuArch"
+# ui_info "CPU 架构: $CpuArch"
