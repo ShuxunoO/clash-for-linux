@@ -63,18 +63,26 @@ write_env_value() {
   local key="$1"
   local value="$2"
   local env_file="$PROJECT_DIR/.env"
-  local escaped="${value//\\/\\\\}"
-  escaped="${escaped//&/\\&}"
-  escaped="${escaped//|/\\|}"
-  escaped="${escaped//\'/\'\\\'\'}"
+  local tmp_file
 
   [ -f "$env_file" ] || return 1
 
-  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$env_file"; then
-    sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}='${escaped}'|g" "$env_file"
-  else
-    printf "export %s='%s'\n" "$key" "$value" >> "$env_file"
-  fi
+  tmp_file="$(mktemp)"
+
+  awk -v k="$key" -v v="$value" '
+    BEGIN { updated = 0 }
+    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" k "=" {
+      print "export " k "='\''" v "'\''"
+      updated = 1
+      next
+    }
+    { print }
+    END {
+      if (!updated) {
+        print "export " k "='\''" v "'\''"
+      }
+    }
+  ' "$env_file" > "$tmp_file" && mv "$tmp_file" "$env_file"
 }
 
 generate_secret() {
@@ -153,19 +161,75 @@ apply_controller_to_config() {
   fi
 }
 
-download_subscription() {
-  [ -n "$CLASH_URL" ] || return 1
+trim_value() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
 
-  local curl_cmd=(curl -fL -S --retry 2 --connect-timeout 10 -m 30 -o "$TMP_DOWNLOAD")
-  [ "$ALLOW_INSECURE_TLS" = "true" ] && curl_cmd+=(-k)
+validate_clash_url() {
+  local url="$1"
+
+  url="$(trim_value "$url")"
+
+  if [ -z "$url" ]; then
+    echo "[ERROR] CLASH_URL 为空" >&2
+    return 1
+  fi
+
+  case "$url" in
+    http://*|https://*)
+      ;;
+    *)
+      echo "[ERROR] CLASH_URL 格式非法：必须以 http:// 或 https:// 开头" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ "$url" =~ [[:space:]] ]]; then
+    echo "[ERROR] CLASH_URL 含有空白字符" >&2
+    return 1
+  fi
+
+  if [[ "$url" == "-"* ]]; then
+    echo "[ERROR] CLASH_URL 非法：看起来像 curl 参数而不是链接" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+download_subscription() {
+  local url
+  url="$(trim_value "${CLASH_URL:-}")"
+
+  validate_clash_url "$url" || return 1
+
+  local curl_cmd=(
+    curl
+    -fL
+    -S
+    --retry 2
+    --connect-timeout 10
+    -m 30
+    -o "$TMP_DOWNLOAD"
+    --
+    "$url"
+  )
+
+  if [ "$ALLOW_INSECURE_TLS" = "true" ]; then
+    curl_cmd=(curl -fL -S --retry 2 --connect-timeout 10 -m 30 -k -o "$TMP_DOWNLOAD" -- "$url")
+  fi
 
   if [ -n "${CLASH_HEADERS:-}" ]; then
+    local header
     while IFS= read -r header; do
-      [ -n "$header" ] && curl_cmd+=(-H "$header")
+      header="$(trim_value "$header")"
+      [ -n "$header" ] && curl_cmd=("${curl_cmd[@]:0:${#curl_cmd[@]}-2}" -H "$header" -- "$url")
     done < <(printf '%s\n' "$CLASH_HEADERS" | tr ';' '\n')
   fi
 
-  curl_cmd+=("$CLASH_URL")
   "${curl_cmd[@]}"
 }
 
@@ -213,9 +277,10 @@ main() {
     exit 1
   fi
 
-  if [ -z "${CLASH_URL:-}" ]; then
-    echo "[ERROR] 未设置 CLASH_URL" >&2
-    write_state "failed" "url_missing" "none"
+  CLASH_URL="$(trim_value "${CLASH_URL:-}")"
+
+  if ! validate_clash_url "$CLASH_URL"; then
+    write_state "failed" "url_invalid" "none"
     exit 1
   fi
 
