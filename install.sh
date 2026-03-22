@@ -14,8 +14,6 @@ Service_Group="root"
 # =========================
 # 基础校验
 # =========================
-ui_header "clashctl 安装"
-
 ui_info "[1/5] 环境检查"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -214,11 +212,11 @@ prompt_and_apply_subscription() {
       esac
     fi
 
-    if command -v systemctl >/dev/null 2>&1; then
-      systemctl restart "${Service_Name}.service"
-    else
-      "$Install_Dir/scripts/run_clash.sh" --daemon
-    fi
+    # if command -v systemctl >/dev/null 2>&1; then
+    #   systemctl restart "${Service_Name}.service"
+    # else
+    #   "$Install_Dir/scripts/run_clash.sh" --daemon
+    # fi
 
     ui_ok "订阅添加成功：[1] $sub_url"
     ui_ok "订阅已生效"
