@@ -336,7 +336,6 @@ cmd_off() {
   source "$PROFILED_FILE"
   proxy_off
 }
-
 cmd_mode() {
   detect_mode
 }
