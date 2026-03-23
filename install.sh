@@ -395,13 +395,13 @@ proxy_on() {
   export ALL_PROXY="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
   export no_proxy="127.0.0.1,localhost,::1"
   export NO_PROXY="127.0.0.1,localhost,::1"
-  echo "[OK] Proxy enabled: http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  echo "🚀 代理已开启: http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
 }
 
 proxy_off() {
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
   unset all_proxy ALL_PROXY no_proxy NO_PROXY
-  echo "[OK] Proxy disabled"
+  echo "❌ 代理已关闭"
 }
 
 proxy_status() {
@@ -444,7 +444,7 @@ show_dashboard_info "$secret" "$public_ip"
 
 show_install_usage
 
-clashctl on >/dev/null 2>&1 || true
-echo "🚀 代理已开启"
+# clashctl on >/dev/null 2>&1 || true
+# echo "🚀 代理已开启"
 
 prompt_and_apply_subscription
