@@ -10,6 +10,7 @@
 <p align="center">
   <img src="docs/assets/5.png" width="100%">
 </p>
+
 # ✨ 核心特性
 
 - 🚀 **自动识别系统架构**，自动下载并使用对应 Clash 内核
