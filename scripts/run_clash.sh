@@ -79,11 +79,20 @@ fi
 # =========================
 # 配置校验（仅执行一次）
 # =========================
-if ! "$CLASH_BIN" -t -f "$CONFIG_FILE" -d "$RUNTIME_DIR" >/dev/null 2>&1; then
+TEST_ERR_FILE="$RUNTIME_DIR/clash-test.stderr.log"
+
+if ! "$CLASH_BIN" -t -f "$CONFIG_FILE" -d "$RUNTIME_DIR" > /dev/null 2>"$TEST_ERR_FILE"; then
   ui_error "Clash 配置校验失败: $CONFIG_FILE" >&2
+  if [ -s "$TEST_ERR_FILE" ]; then
+    echo "---- Mihomo 校验输出 ----" >&2
+    cat "$TEST_ERR_FILE" >&2
+    echo "------------------------" >&2
+  fi
   write_run_state "failed" "config-test"
   exit 2
 fi
+
+rm -f "$TEST_ERR_FILE"
 
 # =========================
 # 前台模式（systemd）

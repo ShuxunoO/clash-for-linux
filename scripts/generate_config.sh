@@ -324,6 +324,18 @@ finalize_config() {
   mv -f "$file" "$RUNTIME_CONFIG"
 }
 
+validate_final_config() {
+  local clash_bin
+
+  clash_bin="$(resolve_clash_bin "$PROJECT_DIR" "${CpuArch:-}")" || {
+    fail_with_state "clash_bin_missing" "无法获取 Clash 内核，无法校验最终配置" "none"
+  }
+
+  if ! "$clash_bin" -t -f "$RUNTIME_CONFIG" -d "$RUNTIME_DIR"; then
+    fail_with_state "config_invalid" "最终生成的 Clash 配置校验失败: $RUNTIME_CONFIG" "none"
+  fi
+}
+
 main() {
   local template_file="$CONFIG_DIR/template.yaml"
 
@@ -359,6 +371,9 @@ main() {
     apply_controller_to_config "$TMP_CONFIG"
     apply_secret_to_config "$TMP_CONFIG"
     finalize_config "$TMP_CONFIG"
+    validate_final_config
+    write_state "success" "subscription_full" "subscription_full"
+    exit 0
     write_state "success" "subscription_full" "subscription_full"
     exit 0
   fi
@@ -379,7 +394,7 @@ main() {
   apply_controller_to_config "$TMP_CONFIG"
   apply_secret_to_config "$TMP_CONFIG"
   finalize_config "$TMP_CONFIG"
-
+  validate_final_config
   write_state "success" "subscription_fragment_merged" "subscription_fragment"
 }
 
