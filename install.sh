@@ -371,37 +371,59 @@ rm -f /etc/profile.d/clashctl.sh >/dev/null 2>&1 || true
 
 # 写入 profile 文件（新终端自动清理污染）
 cat >/etc/profile.d/clash-for-linux.sh <<EOF
-# clash-for-linux 代理工具
+# clash-for-linux shell integration
 
 CLASH_INSTALL_DIR="${Install_Dir}"
 ENV_FILE="\${CLASH_INSTALL_DIR}/.env"
+CLASHCTL_BIN="\${CLASH_INSTALL_DIR}/clashctl"
 
 if [ -f "\$ENV_FILE" ]; then
+  case \$- in
+    *u*) __clf_had_nounset=1 ;;
+    *)   __clf_had_nounset=0 ;;
+  esac
+
   set +u
   . "\$ENV_FILE" >/dev/null 2>&1 || true
-  set -u
+
+  if [ "\$__clf_had_nounset" -eq 1 ]; then
+    set -u
+  else
+    set +u
+  fi
+  unset __clf_had_nounset
 fi
 
 CLASH_LISTEN_IP="\${CLASH_LISTEN_IP:-127.0.0.1}"
 CLASH_HTTP_PORT="\${CLASH_HTTP_PORT:-7890}"
 CLASH_SOCKS_PORT="\${CLASH_SOCKS_PORT:-7891}"
 
+__clash_proxy_host() {
+  if [ "\${CLASH_LISTEN_IP}" = "0.0.0.0" ]; then
+    echo "127.0.0.1"
+  else
+    echo "\${CLASH_LISTEN_IP}"
+  fi
+}
+
 proxy_on() {
-  export http_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
-  export https_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
-  export HTTP_PROXY="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
-  export HTTPS_PROXY="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
-  export all_proxy="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
-  export ALL_PROXY="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
+  local host
+  host="\$(__clash_proxy_host)"
+  export http_proxy="http://\${host}:\${CLASH_HTTP_PORT}"
+  export https_proxy="http://\${host}:\${CLASH_HTTP_PORT}"
+  export HTTP_PROXY="http://\${host}:\${CLASH_HTTP_PORT}"
+  export HTTPS_PROXY="http://\${host}:\${CLASH_HTTP_PORT}"
+  export all_proxy="socks5://\${host}:\${CLASH_SOCKS_PORT}"
+  export ALL_PROXY="socks5://\${host}:\${CLASH_SOCKS_PORT}"
   export no_proxy="127.0.0.1,localhost,::1"
   export NO_PROXY="127.0.0.1,localhost,::1"
-  echo "🚀 代理已开启: http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  echo "🚀 代理环境已开启: http://\${host}:\${CLASH_HTTP_PORT}"
 }
 
 proxy_off() {
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
   unset all_proxy ALL_PROXY no_proxy NO_PROXY
-  echo "❌ 代理已关闭"
+  echo "❌ 代理环境已关闭"
 }
 
 proxy_status() {
@@ -411,6 +433,27 @@ proxy_status() {
   echo "CLASH_LISTEN_IP=\${CLASH_LISTEN_IP}"
   echo "CLASH_HTTP_PORT=\${CLASH_HTTP_PORT}"
   echo "CLASH_SOCKS_PORT=\${CLASH_SOCKS_PORT}"
+}
+
+clashon() {
+  "\$CLASHCTL_BIN" start >/dev/null 2>&1 || return \$?
+  proxy_on
+}
+
+clashoff() {
+  proxy_off
+}
+
+clashproxy() {
+  case "\${1:-status}" in
+    on) proxy_on ;;
+    off) proxy_off ;;
+    status) proxy_status ;;
+    *)
+      echo "用法: clashproxy [on|off|status]"
+      return 1
+      ;;
+  esac
 }
 EOF
 

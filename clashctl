@@ -324,18 +324,16 @@ get_current_branch() {
 }
 
 cmd_on() {
-  require_profiled
-  # shellcheck disable=SC1090
-  source "$PROFILED_FILE"
-  proxy_on
+  cmd_start
+  ui_warn "当前命令运行于子进程，无法直接修改当前 shell 环境"
+  ui_info "请使用: clashon"
 }
 
 cmd_off() {
-  require_profiled
-  # shellcheck disable=SC1090
-  source "$PROFILED_FILE"
-  proxy_off
+  ui_warn "当前命令运行于子进程，无法直接清理当前 shell 环境"
+  ui_info "请使用: clashoff"
 }
+
 cmd_mode() {
   detect_mode
 }
@@ -435,7 +433,7 @@ safe_regenerate_config() {
 
   LAST_CONFIG_RESULT="failed"
 
-  case "$(read_state_value reason 2>/dev/null || true)" in
+  case "$(read_state_value LAST_GENERATE_REASON 2>/dev/null || true)" in
     url_invalid)
       LAST_CONFIG_REASON="订阅链接格式错误"
       LAST_CONFIG_HINT="必须以 http:// 或 https:// 开头"

@@ -21,7 +21,7 @@ mkdir -p "$RUNTIME_DIR"
 # 基础能力
 # =========================
 has_systemd() {
-  command -v systemctl >/dev/null 2>&1
+  command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
 
 service_unit_exists() {

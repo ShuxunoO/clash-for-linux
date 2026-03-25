@@ -42,7 +42,7 @@ fi
 
 # 1) 如果看起来已经是完整 Clash 配置，则直接使用，不再转换
 #    （包含 proxies / proxy-providers / rules / port 等任一关键字即可视为完整配置）
-if grep -qE '^(proxies:|proxy-providers:|mixed-port:|port:|rules:|dns:)' "$IN_FILE"; then
+if grep -qE '^[[:space:]]*(proxies:|proxy-providers:|mixed-port:|port:|rules:|dns:)' "$IN_FILE"; then
   cp -f "$IN_FILE" "$OUT_FILE"
   ui_ok "输入内容已是 Clash 配置，直接使用 -> $OUT_FILE"
   exit 0

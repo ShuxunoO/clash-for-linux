@@ -2,16 +2,14 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if ! declare -f ui_info >/dev/null 2>&1; then
-  # shellcheck source=scripts/ui.sh
-  source "$PROJECT_DIR/scripts/ui.sh"
-fi
-
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/runtime"
 CONFIG_DIR="$PROJECT_DIR/config"
 LOG_DIR="$PROJECT_DIR/logs"
+
+if ! declare -f ui_info >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  source "$PROJECT_DIR/scripts/ui.sh"
+fi
 
 RUNTIME_CONFIG="$RUNTIME_DIR/config.yaml"
 STATE_FILE="$RUNTIME_DIR/state.env"
@@ -264,6 +262,38 @@ download_subscription() {
   "${curl_cmd[@]}"
 }
 
+normalize_subscription() {
+  local input_file="$1"
+  local output_file="$2"
+  local conversion_in="$RUNTIME_DIR/subconverter.input.yaml"
+  local conversion_out="$RUNTIME_DIR/subconverter.output.yaml"
+
+  rm -f "$conversion_in" "$conversion_out"
+
+  cp -f "$input_file" "$conversion_in"
+
+  # 已是完整 Clash 配置：直接使用
+  if is_complete_clash_config "$conversion_in"; then
+    cp -f "$conversion_in" "$output_file"
+    return 0
+  fi
+
+  # 尝试通过 subconverter 转换
+  IN_FILE="$conversion_in" \
+  OUT_FILE="$conversion_out" \
+  CLASH_URL="$CLASH_URL" \
+  bash "$PROJECT_DIR/scripts/clash_profile_conversion.sh" >/dev/null 2>&1 || true
+
+  if [ -s "$conversion_out" ]; then
+    cp -f "$conversion_out" "$output_file"
+    return 0
+  fi
+
+  # 转换失败则保留原始内容，交给后续判断
+  cp -f "$conversion_in" "$output_file"
+  return 0
+}
+
 is_complete_clash_config() {
   local file="$1"
   grep -qE '^[[:space:]]*(proxies:|proxy-providers:|mixed-port:|port:)' "$file"
@@ -322,7 +352,7 @@ main() {
     fail_with_state "subscription_empty" "订阅下载成功但内容为空" "none"
   fi
 
-  cp -f "$TMP_DOWNLOAD" "$TMP_NORMALIZED"
+  normalize_subscription "$TMP_DOWNLOAD" "$TMP_NORMALIZED"
 
   if is_complete_clash_config "$TMP_NORMALIZED"; then
     cp -f "$TMP_NORMALIZED" "$TMP_CONFIG"
@@ -334,7 +364,11 @@ main() {
   fi
 
   if ! grep -qE '^[[:space:]]*proxies:' "$TMP_NORMALIZED"; then
-    fail_with_state "subscription_invalid" "订阅不可用或转换失败" "none"
+    if [ "${SUBCONVERTER_READY:-false}" = "true" ]; then
+      fail_with_state "subscription_invalid" "订阅内容不是有效 Clash 配置，且转换后仍不可用" "none"
+    else
+      fail_with_state "subscription_invalid" "订阅内容不是有效 Clash 配置，且 subconverter 未就绪，无法完成转换" "none"
+    fi
   fi
 
   if [ ! -s "$template_file" ]; then
