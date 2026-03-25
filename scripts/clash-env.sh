@@ -11,9 +11,19 @@ CLASH_INSTALL_DIR="${CLASH_INSTALL_DIR:-/root/clash-for-linux}"
 ENV_FILE="${CLASH_INSTALL_DIR}/.env"
 
 if [ -f "$ENV_FILE" ]; then
+  case $- in
+    *u*) had_nounset=1 ;;
+    *)   had_nounset=0 ;;
+  esac
+
   set +u
   . "$ENV_FILE" >/dev/null 2>&1 || true
-  set -u
+
+  if [ "$had_nounset" -eq 1 ]; then
+    set -u
+  else
+    set +u
+  fi
 fi
 
 CLASH_LISTEN_IP="${CLASH_LISTEN_IP:-127.0.0.1}"
