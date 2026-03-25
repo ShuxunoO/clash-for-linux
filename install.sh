@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# 禁止 source 执行，否则会污染当前 shell（可能导致提示符退化为 -bash-5.1#）
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  echo "请不要使用 source/. 来执行安装脚本"
+  echo "请使用: bash install.sh"
+  return 1 2>/dev/null || exit 1
+fi
+
 set -euo pipefail
 
 Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -152,9 +160,12 @@ get_display_secret() {
 }
 
 get_public_ip() {
-  curl -fsS --max-time 5 ifconfig.me 2>/dev/null \
-    || curl -fsS --max-time 5 ip.sb 2>/dev/null \
-    || curl -fsS --max-time 5 api.ipify.org 2>/dev/null \
+  env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 ifconfig.me 2>/dev/null \
+    || env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 ip.sb 2>/dev/null \
+    || env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 api.ipify.org 2>/dev/null \
     || true
 }
 
