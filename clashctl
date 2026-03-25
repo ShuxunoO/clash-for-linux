@@ -305,10 +305,10 @@ check_dashboard_http() {
   local url="$1"
 
   if command_exists curl; then
-    curl -fsS --max-time 3 "$url" >/dev/null 2>&1
+    curl -LfsS --max-time 3 "$url" >/dev/null 2>&1
     return $?
   elif command_exists wget; then
-    wget -q -T 3 -O /dev/null "$url" >/dev/null 2>&1
+    wget -q -T 3 --max-redirect=3 -O /dev/null "$url" >/dev/null 2>&1
     return $?
   fi
 
@@ -769,11 +769,31 @@ get_lan_ip() {
   hostname -I 2>/dev/null | awk '{print $1}' || true
 }
 
+get_public_ip_direct() {
+  env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 ifconfig.me 2>/dev/null \
+    || env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 ip.sb 2>/dev/null \
+    || env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+    curl -fsS --max-time 5 api.ipify.org 2>/dev/null \
+    || true
+}
+
+dashboard_probe_url() {
+  local controller port
+
+  controller="$(read_runtime_config_value "external-controller" || true)"
+  [ -n "${controller:-}" ] || controller="127.0.0.1:9090"
+
+  port="${controller##*:}"
+  printf 'http://127.0.0.1:%s/ui/\n' "$port"
+}
+
 cmd_ui() {
   local raw="${1:-}"
   local controller host port secret
   local lan_ip public_ip
-  local lan_ui public_ui custom_ui
+  local lan_ui public_ui custom_ui localhost_ui
   local recommended_ui
 
   controller="$(read_runtime_config_value "external-controller" || true)"
@@ -785,18 +805,20 @@ cmd_ui() {
   secret="$(read_runtime_config_value "secret" || true)"
 
   lan_ip="$(get_lan_ip)"
-  public_ip="$(curl -fsS --max-time 5 ifconfig.me 2>/dev/null || true)"
+  public_ip="$(get_public_ip_direct)"
   custom_ui="${CLASH_DASHBOARD_PUBLIC_URL:-}"
 
+  localhost_ui="http://127.0.0.1:${port}/ui"
   lan_ui=""
   public_ui=""
 
   [ -n "${lan_ip:-}" ] && lan_ui="http://${lan_ip}:${port}/ui"
   [ -n "${public_ip:-}" ] && public_ui="http://${public_ip}:${port}/ui"
 
-  recommended_ui="$public_ui"
+  recommended_ui="${custom_ui:-}"
   [ -z "${recommended_ui:-}" ] && recommended_ui="$lan_ui"
-  [ -z "${recommended_ui:-}" ] && recommended_ui="http://127.0.0.1:${port}/ui"
+  [ -z "${recommended_ui:-}" ] && recommended_ui="$public_ui"
+  [ -z "${recommended_ui:-}" ] && recommended_ui="$localhost_ui"
 
   if [ "$raw" = "--raw" ]; then
     printf '%s\n' "$recommended_ui"
@@ -805,9 +827,10 @@ cmd_ui() {
 
   ui_blank
   ui_summary_begin "😼 Clash Web 控制台"
-  ui_summary_row "🌏 公网" "$recommended_ui"
-  [ -n "${lan_ui:-}" ] && ui_summary_row "💻 内网访问" "$lan_ui"
   [ -n "${custom_ui:-}" ] && ui_summary_row "🌐 公共访问" "$custom_ui"
+  [ -n "${public_ui:-}" ] && ui_summary_row "🌏 公网" "$public_ui"
+  [ -n "${lan_ui:-}" ] && ui_summary_row "💻 内网访问" "$lan_ui"
+  ui_summary_row "🖥 本机访问" "$localhost_ui"
   if [ -n "${secret:-}" ]; then
     ui_summary_row "🔑 Web 密钥" "$secret"
   else
@@ -824,7 +847,6 @@ cmd_ui() {
     printf '  • 当前未配置 Web 密钥，可直接访问面板\n'
   fi
 }
-
 cmd_secret() {
   local secret
 
@@ -1178,7 +1200,7 @@ cmd_doctor() {
 
   ui_blank
   ui_info "控制面板"
-  dashboard_url="$(cmd_ui --raw 2>/dev/null || echo "-")"
+  dashboard_url="$(dashboard_probe_url 2>/dev/null || echo "-")"
   controller="$(read_runtime_config_value "external-controller" || echo "-")"
   dashboard_port="$(port_from_controller || echo "-")"
 
